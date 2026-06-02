@@ -649,6 +649,22 @@ function DetailPanel(props){
 }
 
 
+/* -- Fast Money stocks (module-level so state survives App re-renders) -- */
+var FAST_STOCKS=[
+      {ticker:'PLUG',name:'Plug Power Inc',price:2.85,score:44,rec:'HOLD',sector:'Clean Energy',cat:'Speculative',drivers:['DOE loan guarantee','H2 infrastructure build-out'],risks:['Cash burn','Execution delays']},
+      {ticker:'BBAI',name:'BigBear.ai Holdings',price:3.20,score:63,rec:'BUY',sector:'AI/Defense',cat:'Growth',drivers:['DoD AI contracts','Congressional defense spending'],risks:['Small cap risk','Revenue concentration']},
+      {ticker:'FFIE',name:'Faraday Future Intelligent EV',price:0.38,score:15,rec:'SELL',sector:'EV',cat:'Speculative',drivers:['EV brand name'],risks:['Going concern warning','Massive dilution','Near-zero revenue']},
+      {ticker:'CLOV',name:'Clover Health',price:1.95,score:34,rec:'HOLD',sector:'Health Insurance',cat:'Speculative',drivers:['Medicare Advantage growth','Cost reduction plan'],risks:['Ongoing losses','High claims ratio']},
+      {ticker:'INDO',name:'Indonesia Energy Corp',price:1.72,score:29,rec:'HOLD',sector:'Energy',cat:'Micro Cap',drivers:['Brent crude leverage','SE Asia growth'],risks:['Micro cap illiquidity','Geopolitical risk']},
+      {ticker:'VERB',name:'Verb Technology',price:0.31,score:18,rec:'SELL',sector:'SaaS/AI',cat:'Micro Cap',drivers:['AI sales automation tools'],risks:['Declining revenue','Serial dilution','Tiny market cap']},
+      {ticker:'OPEN',name:'Opendoor Technologies',price:1.42,score:46,rec:'HOLD',sector:'PropTech',cat:'Turnaround',drivers:['Housing market recovery','Unit economics improving'],risks:['Inventory risk','Rate sensitivity','Cash burn']},
+      {ticker:'NKLA',name:'Nikola Corp',price:0.62,score:20,rec:'SELL',sector:'EV Trucks',cat:'Speculative',drivers:['HYLA hydrogen network','Fleet partnerships'],risks:['Going concern','Execution history','Dilution']},
+      {ticker:'GFAI',name:'Guardforce AI Co',price:0.48,score:25,rec:'HOLD',sector:'AI Security Robots',cat:'Micro Cap',drivers:['AI robot security demand','Asia expansion'],risks:['Micro cap','Profitability uncertain']},
+      {ticker:'MVIS',name:'Microvision Inc',price:1.18,score:42,rec:'HOLD',sector:'Lidar/AR',cat:'Speculative',drivers:['Automotive lidar contracts','Defense sensing'],risks:['No profitability','Competition from Luminar/Waymo']},
+      {ticker:'WKHS',name:'Workhorse Group',price:0.88,score:31,rec:'HOLD',sector:'EV Delivery',cat:'Speculative',drivers:['USPS last-mile potential','W-15 pickup'],risks:['Lost USPS contract','Execution risk','Cash runway']},
+      {ticker:'IDEX',name:'Ideanomics Inc',price:0.42,score:22,rec:'SELL',sector:'EV Fleet',cat:'Micro Cap',drivers:['EV fleet financing','China JV assets'],risks:['Chronic dilution','Poor execution history','Penny stock risk']},
+];
+
 /* -- App component -- */
 function App(){
   var s1=useState('dashboard'),tab=s1[0],setTab=s1[1];
@@ -679,6 +695,38 @@ function App(){
     var sshowsearch=useState(false),showSearch=sshowsearch[0],setShowSearch=sshowsearch[1];
     var stheme=useState(function(){var saved=localStorage.getItem('apex_theme')||'dark';if(typeof document!=='undefined')applyTheme(saved);return saved;}),appTheme=stheme[0],setAppTheme=stheme[1];
     function changeTheme(t){applyTheme(t);setAppTheme(t);localStorage.setItem('apex_theme',t);}
+
+    /* ── Fast Money lifted state (survives App re-renders) ── */
+    var sfmf=useState('all'),fmFilter=sfmf[0],setFmFilter=sfmf[1];
+    var sfmp=useState({}),fmPricesApp=sfmp[0],setFmPricesApp=sfmp[1];
+    var sfmfl=useState(false),fmFetchingApp=sfmfl[0],setFmFetchingApp=sfmfl[1];
+    var sfms=useState(''),fmStatusApp=sfms[0],setFmStatusApp=sfms[1];
+
+    function fetchFmPricesApp(){
+      setFmFetchingApp(true);
+      setFmStatusApp('Fetching live prices...');
+      var tickers=FAST_STOCKS.map(function(s){return s.ticker;});
+      var promises=tickers.map(function(ticker){
+        return fetch('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(ticker)+'?interval=1d&range=1d',{cache:'no-store'})
+          .then(function(r){return r.json();})
+          .then(function(d){
+            var q=d&&d.chart&&d.chart.result&&d.chart.result[0];
+            if(!q)return null;
+            var m=q.meta;
+            var price=parseFloat((m.regularMarketPrice||0).toFixed(2));
+            var prev=m.chartPreviousClose||price;
+            var chgPct=prev>0?parseFloat(((price-prev)/prev*100).toFixed(2)):0;
+            return {ticker:ticker,price:price,chgPct:chgPct};
+          }).catch(function(){return null;});
+      });
+      Promise.all(promises).then(function(results){
+        var newPrices={};
+        results.forEach(function(r){if(r&&r.ticker)newPrices[r.ticker]=r;});
+        setFmPricesApp(newPrices);
+        setFmStatusApp(Object.keys(newPrices).length+'/'+tickers.length+' updated');
+        setFmFetchingApp(false);
+      });
+    }
 
     /* ── Daily portfolio snapshot for historical chart ── */
     var LS_SNAPSHOTS='apex_perf_v1';
@@ -1226,8 +1274,9 @@ function App(){
           h('div',null,
             h('div',{style:{fontSize:13,fontWeight:700,color:C.textB}},'Fear & Greed Index'),
             h('div',{style:{fontSize:11,color:C.muted}},'Crypto sentiment via alternative.me. Updates every 24 hours.')),
-          h('button',{className:'btn btn-d',style:{marginLeft:'auto',fontSize:10},onClick:fetchFearGreed,disabled:fgLoad},
-            fgLoad?h('span',{className:'sp'}):h('i',{className:'ti ti-refresh'}),' Refresh')
+          h('button',{className:'btn btn-p',style:{marginLeft:'auto',fontSize:11},onClick:runXRay,disabled:loading||positions.length===0},
+            loading?h('span',{className:'sp'}):h('i',{className:'ti ti-zoom-in'}),
+            loading?' Analyzing...':(xrayResult?' Refresh X-Ray':'Run X-Ray Analysis'))
         ),
         fearGreed?h('div',null,
           h('div',{style:{display:'flex',alignItems:'center',gap:16,marginBottom:10}},
@@ -1268,7 +1317,7 @@ function App(){
               })
             )
           ):null
-        ):h('div',{style:{textAlign:'center',padding:10,color:C.muted}},fgLoad?'Loading...':'Loading Fear & Greed data...')
+        ):h('div',{style:{textAlign:'center',padding:10,color:C.muted}},'Loading Fear & Greed data...')
       ),
       h('div',{className:'card',style:{marginBottom:14}},
         h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:12}},
@@ -2405,6 +2454,27 @@ function App(){
           h('i',{className:'ti ti-info-circle',style:{color:C.purple,marginRight:5}}),
           'Benchmark returns are seed data as of May 2026. Portfolio return calculated from your average cost basis. For precise benchmark comparison, use your actual purchase dates with live benchmark data from ',
           h('a',{href:'https://finance.yahoo.com/quote/SPY/performance/',target:'_blank',rel:'noopener noreferrer',style:{color:C.purple}},'Yahoo Finance.')
+        )
+      ):null,
+
+      /* Graduated Stocks (crossed above $5) */
+      graduatedStocks.length>0?h('div',{className:'card',style:{marginTop:10,borderColor:C.green+'35'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8}},
+          h('i',{className:'ti ti-trending-up',style:{color:C.green,fontSize:16}}),
+          h('div',null,
+            h('div',{style:{fontSize:12,fontWeight:700,color:C.green}},'Graduated Stocks'),
+            h('div',{style:{fontSize:10,color:C.muted}},'These stocks crossed above $5 -- they leave the Fast Money list. Fetch live prices to update.')
+          )
+        ),
+        h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+          graduatedStocks.map(function(s){
+            var lp=fmPrices[s.ticker];
+            return h('div',{key:s.ticker,style:{background:C.green+'10',border:'1px solid '+C.green+'30',borderRadius:5,padding:'6px 10px',display:'flex',alignItems:'center',gap:8}},
+              h('span',{style:{fontFamily:C.mono,fontWeight:700,color:C.green}},s.ticker),
+              h('span',{style:{fontFamily:C.mono,fontSize:11,color:C.textB}},'$'+(lp?lp.price.toFixed(2):s.price.toFixed(2))),
+              h('span',{style:{fontSize:9,color:C.green,fontWeight:700}},'ABOVE $5')
+            );
+          })
         )
       ):null
     );
@@ -9086,14 +9156,48 @@ function App(){
     var sm=useState(''),  aiMsg=sm[0],    setAiMsg=sm[1];
     var se=useState(''),  errMsg=se[0],   setErrMsg=se[1];
 
+    /* sfetch state for live fetch loading */
+    var sfetch=useState(false),fetching=sfetch[0],setFetching=sfetch[1];
+
     function lookup(sym){
       var t=(sym||ticker).trim().toUpperCase();
-      if(!t){setErrMsg('Enter a ticker.');return;}
+      if(!t){setErrMsg('Enter a ticker symbol.');return;}
+      setErrMsg('');setAiResult(null);setAiMsg('');
+      /* Check local database first */
       var d=FUND_DATA[t];
-      if(!d){setErrMsg(t+' not in database. Try: '+Object.keys(FUND_DATA).join(', '));return;}
-      setErrMsg('');
-      setFundData({ticker:t,data:d});
-      setAiResult(null);setAiMsg('');
+      if(d){setFundData({ticker:t,data:d,live:false});return;}
+      /* Not in local DB -- fetch from Yahoo Finance */
+      setFetching(true);
+      var url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(t)+'?interval=1d&range=1d';
+      fetch(url,{cache:'no-store'})
+        .then(function(r){return r.json();})
+        .then(function(data){
+          var q=data&&data.chart&&data.chart.result&&data.chart.result[0];
+          if(!q||!q.meta)throw new Error('No data found for '+t);
+          var m=q.meta;
+          var price=m.regularMarketPrice||0;
+          var prev=m.chartPreviousClose||price;
+          var chgPct=prev>0?(price-prev)/prev*100:0;
+          /* Build a basic data object from what Yahoo returns */
+          var liveData={
+            pe: m.trailingPE?parseFloat(m.trailingPE.toFixed(1)):null,
+            fpe: m.forwardPE?parseFloat(m.forwardPE.toFixed(1)):null,
+            mktcap: m.marketCap?'$'+((m.marketCap>=1e12?(m.marketCap/1e12).toFixed(2)+'T':(m.marketCap>=1e9?(m.marketCap/1e9).toFixed(1)+'B':'<$1B'))):null,
+            price: parseFloat(price.toFixed(2)),
+            chgPct: parseFloat(chgPct.toFixed(2)),
+            sector: m.fullExchangeName||'',
+            currency: m.currency||'USD',
+            shortName: m.shortName||t,
+            note: 'Live data from Yahoo Finance. Detailed fundamentals (margins, growth rates) available in financial statements.',
+            live: true
+          };
+          setFundData({ticker:t,data:liveData,live:true,price:price,chgPct:chgPct});
+          setFetching(false);
+        })
+        .catch(function(e){
+          setErrMsg(t+' not found. Check the ticker symbol and try again. Error: '+e.message);
+          setFetching(false);
+        });
     }
 
     function getFundAI(fd){
@@ -9165,10 +9269,30 @@ function App(){
         h('div',{style:{display:'grid',gridTemplateColumns:'1fr auto',gap:8,marginBottom:8}},
           h('input',{value:ticker,onChange:function(e){setTicker(e.target.value.toUpperCase());},
             onKeyDown:function(e){if(e.key==='Enter')lookup();},
-            placeholder:'Enter ticker (e.g. NVDA, LMT, MSFT, META, AAPL...)',className:'finp',style:{textTransform:'uppercase'}}),
-          h('button',{className:'btn btn-p',onClick:function(){lookup();},disabled:!ticker.trim()},h('i',{className:'ti ti-search'}),' Look Up')
+            placeholder:'Any ticker symbol (NVDA, AAPL, TSLA, AMD...)',className:'finp',style:{textTransform:'uppercase'}}),
+          h('button',{className:'btn btn-p',onClick:function(){lookup();},disabled:!ticker.trim()||fetching},fetching?h('span',{className:'sp'}):h('i',{className:'ti ti-search'}),' Look Up')
         ),
         errMsg?h('div',{style:{fontSize:11,color:C.red,marginBottom:6}},errMsg):null,
+        fetching?h('div',{style:{fontSize:11,color:C.blue,marginBottom:6,display:'flex',alignItems:'center',gap:6}},
+          h('span',{className:'sp'}),h('span',null,'Fetching live data from Yahoo Finance...')):null,
+        /* Quick-pick from database */
+        h('div',{style:{marginBottom:8}},
+          h('div',{style:{fontSize:10,color:C.muted,marginBottom:4}},'Quick picks (full data):'),
+          h('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},
+            Object.keys(FUND_DATA).map(function(t){
+              return h('button',{key:t,style:{fontSize:10,padding:'2px 7px',borderRadius:3,
+                background:fundData&&fundData.ticker===t?C.blue+'20':C.surf2,
+                color:fundData&&fundData.ticker===t?C.blue:C.muted2,
+                border:'1px solid '+(fundData&&fundData.ticker===t?C.blue:C.brd),
+                cursor:'pointer',fontFamily:'inherit'},
+                onClick:function(){setTicker(t);lookup(t);}},t);
+            })
+          ),
+          h('div',{style:{fontSize:9,color:C.muted,marginTop:5}},
+            h('i',{className:'ti ti-info-circle',style:{marginRight:4}}),
+            'Type ANY ticker (AAPL, GOOGL, AMD, BA...) for live Yahoo Finance data. Database has full metrics for: ',
+            Object.keys(FUND_DATA).join(', '))
+        ),
         portfolioTickers2.length>0?h('div',{style:{display:'flex',gap:5,flexWrap:'wrap'}},
           h('span',{style:{fontSize:10,color:C.muted,alignSelf:'center'}},'Portfolio: '),
           portfolioTickers2.map(function(t){
@@ -10212,30 +10336,35 @@ function App(){
   }
 
 /* -- TabFastMoney -- */
-  function TabFastMoney(){
-    var FAST_STOCKS=[
-      {ticker:'PLUG',name:'Plug Power Inc',price:2.85,score:44,rec:'HOLD',sector:'Clean Energy',cat:'Speculative',drivers:['DOE loan guarantee','H2 infrastructure build-out'],risks:['Cash burn','Execution delays']},
-      {ticker:'BBAI',name:'BigBear.ai Holdings',price:3.20,score:63,rec:'BUY',sector:'AI/Defense',cat:'Growth',drivers:['DoD AI contracts','Congressional defense spending'],risks:['Small cap risk','Revenue concentration']},
-      {ticker:'FFIE',name:'Faraday Future Intelligent EV',price:0.38,score:15,rec:'SELL',sector:'EV',cat:'Speculative',drivers:['EV brand name'],risks:['Going concern warning','Massive dilution','Near-zero revenue']},
-      {ticker:'CLOV',name:'Clover Health',price:1.95,score:34,rec:'HOLD',sector:'Health Insurance',cat:'Speculative',drivers:['Medicare Advantage growth','Cost reduction plan'],risks:['Ongoing losses','High claims ratio']},
-      {ticker:'INDO',name:'Indonesia Energy Corp',price:1.72,score:29,rec:'HOLD',sector:'Energy',cat:'Micro Cap',drivers:['Brent crude leverage','SE Asia growth'],risks:['Micro cap illiquidity','Geopolitical risk']},
-      {ticker:'VERB',name:'Verb Technology',price:0.31,score:18,rec:'SELL',sector:'SaaS/AI',cat:'Micro Cap',drivers:['AI sales automation tools'],risks:['Declining revenue','Serial dilution','Tiny market cap']},
-      {ticker:'OPEN',name:'Opendoor Technologies',price:1.42,score:46,rec:'HOLD',sector:'PropTech',cat:'Turnaround',drivers:['Housing market recovery','Unit economics improving'],risks:['Inventory risk','Rate sensitivity','Cash burn']},
-      {ticker:'NKLA',name:'Nikola Corp',price:0.62,score:20,rec:'SELL',sector:'EV Trucks',cat:'Speculative',drivers:['HYLA hydrogen network','Fleet partnerships'],risks:['Going concern','Execution history','Dilution']},
-      {ticker:'GFAI',name:'Guardforce AI Co',price:0.48,score:25,rec:'HOLD',sector:'AI Security Robots',cat:'Micro Cap',drivers:['AI robot security demand','Asia expansion'],risks:['Micro cap','Profitability uncertain']},
-      {ticker:'MVIS',name:'Microvision Inc',price:1.18,score:42,rec:'HOLD',sector:'Lidar/AR',cat:'Speculative',drivers:['Automotive lidar contracts','Defense sensing'],risks:['No profitability','Competition from Luminar/Waymo']},
-      {ticker:'WKHS',name:'Workhorse Group',price:0.88,score:31,rec:'HOLD',sector:'EV Delivery',cat:'Speculative',drivers:['USPS last-mile potential','W-15 pickup'],risks:['Lost USPS contract','Execution risk','Cash runway']},
-      {ticker:'IDEX',name:'Ideanomics Inc',price:0.42,score:22,rec:'SELL',sector:'EV Fleet',cat:'Micro Cap',drivers:['EV fleet financing','China JV assets'],risks:['Chronic dilution','Poor execution history','Penny stock risk']},
-    ];
+  function TabFastMoney(props){
 
     var sf=useState(null), selStock=sf[0], setSelStock=sf[1];
     var sa=useState(null), aiResult=sa[0], setAiResult=sa[1];
     var sl=useState(false), loading=sl[0], setLoading=sl[1];
     var sm=useState(''), aiMsg=sm[0], setAiMsg=sm[1];
-    var sfilter=useState('all'), filter=sfilter[0], setFilter=sfilter[1];
+    /* Use App-level props for state that must survive re-renders */
+    var filter=props&&props.fmFilter?props.fmFilter:'all';
+    var setFilter=props&&props.setFmFilter?props.setFmFilter:function(){};
+    var fmPrices=props&&props.fmPrices?props.fmPrices:{};
+    var fetchFmPrices=props&&props.fetchFmPrices?props.fetchFmPrices:function(){};
+    var fmFetching=props&&props.fmFetching?props.fmFetching:false;
+    var fmStatus=props&&props.fmStatus?props.fmStatus:'';
 
-    var cats=['all','Growth','Speculative','Micro Cap','Turnaround','China Tech'];
-    var filtered=filter==='all'?FAST_STOCKS:FAST_STOCKS.filter(function(s){return s.cat===filter;});
+    /* Dynamic list: exclude stocks that have risen above $5 (graduated) */
+    var activeFastStocks=FAST_STOCKS.map(function(s){
+      var livePrice=fmPrices[s.ticker]?fmPrices[s.ticker].price:s.price;
+      return Object.assign({},s,{currentPrice:livePrice});
+    }).filter(function(s){
+      /* Remove stocks above $5 (they've graduated from fast money territory) */
+      return s.currentPrice<=5.00;
+    });
+    var graduatedStocks=FAST_STOCKS.filter(function(s){
+      var livePrice=fmPrices[s.ticker]?fmPrices[s.ticker].price:s.price;
+      return livePrice>5.00;
+    });
+
+    var cats=['all','Growth','Speculative','Micro Cap','Turnaround'];
+    var filtered=filter==='all'?activeFastStocks:activeFastStocks.filter(function(s){return s.cat===filter;});
 
     function analyzeStock(stock){
       // Always set selected stock first so UI updates
@@ -10281,6 +10410,9 @@ function App(){
 
     var rcMap={BUY:C.green,HOLD:C.warn,SELL:C.red};
 
+
+
+
     return h('div',null,
       h('div',{className:'card',style:{marginBottom:14}},
         h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:10}},
@@ -10291,7 +10423,14 @@ function App(){
           )
         ),
         h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
-          cats.map(function(c){return h('button',{key:c,className:'tgl'+(filter===c?' on':''),style:{fontSize:10,padding:'4px 10px'},onClick:function(){setFilter(c);}},c);})
+          cats.map(function(c){return h('button',{key:c,className:'tgl'+(filter===c?' on':''),style:{fontSize:10,padding:'4px 10px'},onClick:function(){setFilter(c);}},c);}),
+          h('div',{style:{marginLeft:'auto',display:'flex',alignItems:'center',gap:6}},
+            fmStatus?h('span',{style:{fontSize:9,color:Object.keys(fmPrices).length>0?C.green:C.muted}},
+              h('i',{className:'ti '+(Object.keys(fmPrices).length>0?'ti-circle-check':'ti-loader'),style:{marginRight:3}}),fmStatus):null,
+            h('button',{className:'btn btn-d',style:{fontSize:10},onClick:fetchFmPrices,disabled:fmFetching},
+              fmFetching?h('span',{className:'sp'}):h('i',{className:'ti ti-refresh'}),
+              fmFetching?' Fetching...':(Object.keys(fmPrices).length>0?' Refresh Prices':' Get Live Prices'))
+          )
         )
       ),
       h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:14}},
@@ -10314,8 +10453,14 @@ function App(){
                 h('div',{style:{fontSize:10,color:C.muted}},stock.name)
               ),
               h('div',{style:{textAlign:'right'}},
-                h('div',{style:{fontFamily:C.mono,fontSize:16,fontWeight:700,color:C.textB}},'$'+stock.price.toFixed(2)),
-                h('div',{style:{fontSize:9,color:C.muted,marginTop:1}},stock.sector)
+                h('div',{style:{fontFamily:C.mono,fontSize:16,fontWeight:700,color:C.textB}},
+                  '$'+(fmPrices[stock.ticker]?fmPrices[stock.ticker].price.toFixed(2):stock.price.toFixed(2)),
+                  fmPrices[stock.ticker]?h('span',{style:{fontSize:9,fontFamily:C.mono,color:fmPrices[stock.ticker].chgPct>=0?C.green:C.red,marginLeft:4}},(fmPrices[stock.ticker].chgPct>=0?'+':'')+fmPrices[stock.ticker].chgPct.toFixed(2)+'%'):null
+                ),
+                h('div',{style:{display:'flex',alignItems:'center',gap:4,marginTop:1}},
+                  h('span',{style:{fontSize:9,color:C.muted}},stock.sector),
+                  fmPrices[stock.ticker]?h('span',{style:{fontSize:8,background:C.green+'15',color:C.green,border:'1px solid '+C.green+'25',padding:'0 3px',borderRadius:2}},'LIVE'):null
+                )
               )
             ),
             h('div',{style:{display:'flex',gap:4,marginBottom:8,flexWrap:'wrap'}},
@@ -16592,7 +16737,7 @@ function App(){
     if(tab==='rates'){return h(TabRates,null);}
     if(tab==='alerts'){return h(TabAlerts,{firedAlerts:firedAlerts,setFiredAlerts:setFiredAlerts,appTriggers:appTriggers,setAppTriggers:setAppTriggers});}
     if(tab==='topgrades'){return h(TabTopGrades,null);}
-    if(tab==='fastmoney'){return h(TabFastMoney,null);}
+    if(tab==='fastmoney'){return h(TabFastMoney,{fmFilter:fmFilter,setFmFilter:setFmFilter,fmPrices:fmPricesApp,fetchFmPrices:fetchFmPricesApp,fmFetching:fmFetchingApp,fmStatus:fmStatusApp});}
     if(tab==='cttracker'){return h(TabCongressTracker,null);}
     if(tab==='congress'){return h(TabCongressWorld,null);}
     if(tab==='wallfirms'){return h(TabWallFirms,null);}
