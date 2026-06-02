@@ -700,6 +700,17 @@ function App(){
     }
     /* Take snapshot on load and after price refresh */
     useEffect(function(){takeSnapshot();},[positions,livePrices]);
+    /* ── Congressional auto-refresh every 30 minutes (app-level) ── */
+    var ctRefreshRef=useRef(null);
+    useEffect(function(){
+      ctRefreshRef.current=setInterval(function(){
+        if(document.visibilityState==='visible'){
+          /* Dispatch a custom event that TabCongressTracker listens for */
+          document.dispatchEvent(new CustomEvent('apex-ct-refresh'));
+        }
+      },30*60*1000);
+      return function(){clearInterval(ctRefreshRef.current);};
+    },[]);
     /* ── Auto-refresh live prices every 5 minutes when page is visible ── */
     var autoRefreshRef=useRef(null);
     var sarf=useState(false),autoRefreshOn=sarf[0],setAutoRefreshOn=sarf[1];
@@ -10802,6 +10813,18 @@ function App(){
     var slerr=useState(''),liveErr=slerr[0],setLiveErr=slerr[1];
     var slsrc=useState(''),liveSrc=slsrc[0],setLiveSrc=slsrc[1];
 
+    /* Auto-fetch on mount + every 30 min + respond to app-level refresh event */
+    useEffect(function(){
+      fetchLiveCongressData();
+      var interval=setInterval(fetchLiveCongressData, 30*60*1000);
+      function handleAppRefresh(){fetchLiveCongressData();}
+      document.addEventListener('apex-ct-refresh', handleAppRefresh);
+      return function(){
+        clearInterval(interval);
+        document.removeEventListener('apex-ct-refresh', handleAppRefresh);
+      };
+    },[]);
+
     function fetchLiveCongressData(){
       setFetchingLive(true);setLiveErr('');
       /* Try House Stock Watcher API first (CORS-enabled, free, no key) */
@@ -10944,9 +10967,9 @@ function App(){
           h('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:4}},
             h('button',{className:'btn btn-g',style:{fontSize:10},onClick:fetchLiveCongressData,disabled:fetchingLive},
               fetchingLive?h('span',{className:'sp'}):h('i',{className:'ti ti-refresh'}),
-              fetchingLive?' Loading...':(liveTradesData.length>0?' Refresh Live':' Load Live Disclosures')),
+              fetchingLive?' Fetching...':(liveTradesData.length>0?' Refresh':' Fetching on load...')),
             liveTradesData.length>0?h('span',{style:{fontSize:10,color:C.green}},
-              h('i',{className:'ti ti-circle-check',style:{marginRight:4}}),liveTradesData.length+' live trades loaded'):null,
+              h('i',{className:'ti ti-circle-check',style:{marginRight:4}}),liveTradesData.length+' live trades | auto-refreshes every 30 min'):null,
             liveErr?h('div',{style:{fontSize:9,color:C.warn,maxWidth:300}},liveErr.substring(0,100)):null
           ),
           h('div',{style:{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}},
@@ -12528,7 +12551,7 @@ function App(){
               )
             ),
             h('div',{style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:6,alignItems:'center'}},
-              h('input',{type:'password',className:'finp',
+              h('input',{type:'text',autoComplete:'off',spellCheck:false,className:'finp',
                 value:kInput[firm.id]||'',
                 onChange:function(e){setKInput(function(p){return Object.assign({},p,{[firm.id]:e.target.value});});},
                 placeholder:hasKey?'Key saved -- paste to replace':'Paste '+firm.apiName+' key (if you have access)',
@@ -16070,6 +16093,57 @@ function App(){
     var sr=useState(null),results=sr[0],setResults=sr[1];
     var ss=useState(''),statusMsg=ss[0],setStatusMsg=ss[1];
     var sx=useState(null),expanded=sx[0],setExpanded=sx[1];
+    /* Live news feed */
+    var sn=useState([]),evNews=sn[0],setEvNews=sn[1];
+    var snl=useState(false),evNewsLoad=snl[0],setEvNewsLoad=snl[1];
+    var snf=useState(false),evNewsFetched=snf[0],setEvNewsFetched=snf[1];
+
+    function fetchEventNews(){
+      setEvNewsLoad(true);
+      var tickers=positions.slice(0,6).map(function(p){return p.ticker;});
+      var queries=['SPY','NVDA','defense','Fed Reserve'].concat(tickers);
+      queries=queries.filter(function(v,i,a){return a.indexOf(v)===i;}).slice(0,5);
+      var allNews=[];var done=0;
+      queries.forEach(function(q){
+        var url='https://query1.finance.yahoo.com/v1/finance/search?q='+encodeURIComponent(q)+'&newsCount=4&quotesCount=0';
+        fetch(url,{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){
+          var news=(data&&data.news)||[];
+          news.forEach(function(n){
+            if(n.title&&n.link){
+              /* Auto-categorize by keywords */
+              var title=n.title.toLowerCase();
+              var cat=title.indexOf('fed')>=0||title.indexOf('rate')>=0||title.indexOf('inflation')>=0?'fed':
+                       title.indexOf('war')>=0||title.indexOf('china')>=0||title.indexOf('geopolit')>=0?'geopolitical':
+                       title.indexOf('earn')>=0||title.indexOf('revenue')>=0||title.indexOf('profit')>=0?'earnings':
+                       title.indexOf('congress')>=0||title.indexOf('senate')>=0||title.indexOf('bill')>=0?'legislative':
+                       'macro';
+              allNews.push({
+                title:n.title,url:n.link,
+                publisher:n.publisher||'Yahoo Finance',
+                cat:cat,
+                age:n.providerPublishTime?Math.round((Date.now()-n.providerPublishTime*1000)/60000):null,
+                ticker:q.length<=5?q:null
+              });
+            }
+          });
+        }).catch(function(){}).finally(function(){
+          done++;
+          if(done===queries.length){
+            var seen={};
+            var unique=allNews.filter(function(n){
+              if(seen[n.title])return false;seen[n.title]=true;return true;
+            });
+            setEvNews(unique.slice(0,20));
+            setEvNewsLoad(false);
+            setEvNewsFetched(true);
+          }
+        });
+      });
+    }
+
+    /* Auto-fetch news on mount */
+    useEffect(function(){fetchEventNews();var t=setInterval(fetchEventNews,15*60*1000);return function(){clearInterval(t);};},[]); 
+
     function upd(idx,field,val){setEvents(function(prev){return prev.map(function(e,i){return i===idx?Object.assign({},e,{[field]:val}):e;});});}
     var filled=events.filter(function(e){return e.text.trim().length>0;});
 
@@ -16229,6 +16303,48 @@ function App(){
           );
         })():null
       ):null
+      /* ── Live News Feed (auto-fetched every 15 min) ── */
+      ,h('div',{className:'card',style:{marginTop:14}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:10}},
+          h('div',{style:{width:34,height:34,background:'rgba(77,158,255,.15)',border:'1px solid rgba(77,158,255,.4)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},
+            h('i',{className:'ti ti-news',style:{fontSize:16,color:C.blue}})),
+          h('div',null,
+            h('div',{style:{fontSize:13,fontWeight:700,color:C.textB}},'Breaking News'),
+            h('div',{style:{fontSize:11,color:C.muted}},
+              evNewsFetched?'Live headlines via Yahoo Finance | auto-refreshes every 15 min':'Loading live headlines...')),
+          evNewsLoad?h('span',{className:'sp',style:{marginLeft:'auto'}}):
+            h('button',{className:'btn btn-d',style:{marginLeft:'auto',fontSize:10},onClick:fetchEventNews},
+              h('i',{className:'ti ti-refresh'}),' Refresh')
+        ),
+        evNews.length===0&&evNewsLoad?h('div',{style:{textAlign:'center',padding:16}},
+          h('div',{style:{width:28,height:28,border:'3px solid '+C.brd,borderTopColor:C.blue,borderRadius:'50%',animation:'spin .8s linear infinite',margin:'0 auto 8px'}}),
+          h('div',{style:{fontSize:11,color:C.muted}},'Fetching live news...')):null,
+        evNews.length>0?h('div',{style:{display:'flex',flexDirection:'column',gap:3}},
+          evNews.map(function(n,i){
+            var catColor=n.cat==='fed'?C.warn:n.cat==='geopolitical'?C.red:n.cat==='earnings'?C.green:n.cat==='legislative'?C.gold:C.blue;
+            var catLabel=n.cat==='fed'?'Fed/Rates':n.cat==='geopolitical'?'Geopolitical':n.cat==='earnings'?'Earnings':n.cat==='legislative'?'Legislative':'Macro';
+            var ageStr=n.age!==null?(n.age<60?n.age+'m ago':Math.round(n.age/60)+'h ago'):null;
+            return h('a',{key:i,href:n.url,target:'_blank',rel:'noopener noreferrer',
+              style:{display:'block',padding:'8px 10px',background:C.surf2,borderRadius:5,textDecoration:'none',border:'1px solid '+C.brd,transition:'background .12s'},
+              onMouseEnter:function(e){e.currentTarget.style.background='rgba(77,158,255,.07)';},
+              onMouseLeave:function(e){e.currentTarget.style.background=C.surf2;}
+            },
+              h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6}},
+                h('div',{style:{flex:1}},
+                  h('div',{style:{fontSize:11,fontWeight:600,color:C.textB,lineHeight:1.4,marginBottom:3}},n.title),
+                  h('div',{style:{display:'flex',gap:6,fontSize:9,alignItems:'center'}},
+                    h('span',{style:{background:catColor+'15',color:catColor,border:'1px solid '+catColor+'30',padding:'1px 5px',borderRadius:2,fontWeight:700}},catLabel),
+                    h('span',{style:{color:C.muted}},n.publisher),
+                    ageStr?h('span',{style:{color:C.muted}},'| '+ageStr):null,
+                    n.ticker?h('span',{style:{fontFamily:C.mono,fontWeight:700,color:C.muted2}},'$'+n.ticker):null
+                  )
+                ),
+                h('i',{className:'ti ti-external-link',style:{fontSize:10,color:C.muted,flexShrink:0,marginTop:2}})
+              )
+            );
+          })
+        ):null
+      )
     );
   }
 
@@ -16264,7 +16380,7 @@ function App(){
           )
         ),
         h('div',{style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:6,alignItems:'center'}},
-          h('input',{type:'password',className:'finp',value:ki[prov.id]||'',onChange:function(e){setKi(function(prev){return Object.assign({},prev,{[prov.id]:e.target.value});});},placeholder:keys[prov.id]?'Key saved - paste to replace':(prov.ph||'Paste your API key here'),style:{fontFamily:C.mono,letterSpacing:'0.04em'}}),
+          h('input',{type:'text',className:'finp',autoComplete:'off',spellCheck:false,value:ki[prov.id]||'',onChange:function(e){setKi(function(prev){return Object.assign({},prev,{[prov.id]:e.target.value});});},onFocus:function(e){e.target.select();},placeholder:keys[prov.id]?'Key saved - paste to replace':(prov.ph||'Paste your API key here'),style:{fontFamily:C.mono,letterSpacing:'0.04em'}}),
           h('button',{className:'btn btn-p',style:{fontSize:10,padding:'7px 12px',flexShrink:0},onClick:function(){saveKey(prov.id);}},saved[prov.id]?h(Fragment,null,h('i',{className:'ti ti-check'}),' Saved!'):h(Fragment,null,h('i',{className:'ti ti-check'}),' Save')),
           hasKey?h('button',{className:'btn btn-r',style:{fontSize:10,padding:'7px 8px'},onClick:function(){clearKey(prov.id);}},h('i',{className:'ti ti-trash'})):null
         )
@@ -16520,8 +16636,8 @@ function App(){
       )
     ):null,
     /* ── Onboarding / Tutorial Overlay ── */
-    showOnboard?h('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,.75)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}},
-      h('div',{style:{background:C.surf,border:'1px solid '+C.brd,borderRadius:12,padding:'28px 32px',maxWidth:520,width:'100%'}},
+    showOnboard?h('div',{onClick:finishOnboard,style:{position:'fixed',inset:0,background:'rgba(0,0,0,.75)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}},
+      h('div',{onClick:function(e){e.stopPropagation();},style:{background:C.surf,border:'1px solid '+C.brd,borderRadius:12,padding:'28px 32px',maxWidth:520,width:'100%'}},
         /* Step indicator */
         h('div',{style:{display:'flex',gap:6,marginBottom:20,justifyContent:'center'}},
           [0,1,2,3].map(function(i){
