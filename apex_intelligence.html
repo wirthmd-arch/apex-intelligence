@@ -322,10 +322,10 @@ const SEED_RATES={fed:5.25,prime:8.50,rate30:6.82,rate15:6.14,arm:6.22,heloc:8.7
 
 /* ===== PROVIDER CONFIG ===== */
 const AI_PROVS=[
-  {id:"claude",label:"Claude (Anthropic)",url:"https://console.anthropic.com/settings/keys",desc:"Recommended . claude-sonnet-4",color:"#D4847A",icon:"ti-message-chatbot"},
-  {id:"openai",label:"ChatGPT (OpenAI)",url:"https://platform.openai.com/api-keys",desc:"GPT-4o",color:"#74AA9C",icon:"ti-brand-openai"},
-  {id:"gemini",label:"Gemini (Google)",url:"https://aistudio.google.com/app/apikey",desc:"Gemini 1.5 Pro . free tier",color:"#4285F4",icon:"ti-brand-google"},
-  {id:"grok",label:"Grok (xAI)",url:"https://console.x.ai/",desc:"Grok-2",color:"#E7E7E7",icon:"ti-brand-x"},
+  {id:"gemini",label:"Gemini 2.0 Flash (Google)",url:"https://aistudio.google.com/app/apikey",desc:"FREE tier available -- works from local files -- Recommended",color:"#4285F4",icon:"ti-brand-google",corsOk:true},
+  {id:"openai",label:"GPT-4o (OpenAI)",url:"https://platform.openai.com/api-keys",desc:"Paid -- works from local files",color:"#74AA9C",icon:"ti-brand-openai",corsOk:true},
+  {id:"grok",label:"Grok-2 (xAI)",url:"https://console.x.ai/",desc:"Paid -- works from local files",color:"#E7E7E7",icon:"ti-brand-x",corsOk:true},
+  {id:"claude",label:"Claude (Anthropic)",url:"https://console.anthropic.com/settings/keys",desc:"BLOCKED -- Anthropic API does not allow browser requests (CORS policy). Use Gemini or OpenAI instead.",color:"#D4847A",icon:"ti-message-chatbot",corsOk:false},
 ];
 const PRICE_PROVS=[
   {id:"alphavantage",label:"Alpha Vantage",url:"https://www.alphavantage.co/support/#api-key",desc:"Free . 25 req/day . most popular",color:"#00B4D8",icon:"ti-chart-candle",ph:"e.g. A1B2C3D4E5F6G7H8"},
@@ -417,19 +417,21 @@ async function fetchPrice(ticker,keys,prov){
 
 /* ===== AI CALLER ===== */
 async function callAI(prompt,keys,aiProv,maxTok){
-  const key=keys[aiProv]||"";
   maxTok=maxTok||1800;
-  if(!key)throw new Error("No API key for "+aiProv+". Go to Settings tab to add your key.");
+  const key=keys[aiProv]||"";
+
+  /* Anthropic blocks CORS from browsers -- cannot call from file:// or any frontend */
   if(aiProv==="claude"){
-    const r=await fetch("https://api.anthropic.com/v1/messages",{
-      method:"POST",
-      headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01"},
-      body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:maxTok,messages:[{role:"user",content:prompt}]})
-    });
-    const d=await r.json();
-    if(d.error)throw new Error(d.error.message);
-    return d.content?.map(b=>b.text||"").join("")||"";
+    throw new Error("Claude (Anthropic) API blocks browser requests due to CORS policy. "+
+      "Please switch to Gemini (free) or OpenAI in Settings. "+
+      "Gemini 2.0 Flash is free at aistudio.google.com");
   }
+
+  if(!key){
+    throw new Error("No API key for "+aiProv+". Go to Settings to add your key. "+
+      "Gemini is free -- get a key at aistudio.google.com/app/apikey");
+  }
+
   if(aiProv==="openai"){
     const r=await fetch("https://api.openai.com/v1/chat/completions",{
       method:"POST",
@@ -665,6 +667,24 @@ var FAST_STOCKS=[
       {ticker:'IDEX',name:'Ideanomics Inc',price:0.42,score:22,rec:'SELL',sector:'EV Fleet',cat:'Micro Cap',drivers:['EV fleet financing','China JV assets'],risks:['Chronic dilution','Poor execution history','Penny stock risk']},
 ];
 
+/* -- CORS-safe fetch helper -- */
+/* When loaded from file://, direct Yahoo Finance calls are blocked by some browsers.
+   This helper tries the direct URL first; if CORS blocks it, retries via a public proxy. */
+function corsFetch(url){
+  return fetch(url,{cache:'no-store'}).then(function(r){
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).catch(function(e){
+    /* CORS error or network error -- try via allorigins proxy */
+    var proxyUrl='https://api.allorigins.win/get?url='+encodeURIComponent(url);
+    return fetch(proxyUrl,{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      /* allorigins wraps the response in {contents: "..."} */
+      if(d&&d.contents)return JSON.parse(d.contents);
+      throw new Error('Proxy returned no content');
+    });
+  });
+}
+
 /* -- App component -- */
 function App(){
   var s1=useState('dashboard'),tab=s1[0],setTab=s1[1];
@@ -707,7 +727,7 @@ function App(){
       setFmStatusApp('Fetching live prices...');
       var tickers=FAST_STOCKS.map(function(s){return s.ticker;});
       var promises=tickers.map(function(ticker){
-        return fetch('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(ticker)+'?interval=1d&range=1d',{cache:'no-store'})
+        return corsFetch('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(ticker)+'?interval=1d&range=1d')
           .then(function(r){return r.json();})
           .then(function(d){
             var q=d&&d.chart&&d.chart.result&&d.chart.result[0];
@@ -1278,47 +1298,7 @@ function App(){
             loading?h('span',{className:'sp'}):h('i',{className:'ti ti-zoom-in'}),
             loading?' Analyzing...':(xrayResult?' Refresh X-Ray':'Run X-Ray Analysis'))
         ),
-        fearGreed?h('div',null,
-          h('div',{style:{display:'flex',alignItems:'center',gap:16,marginBottom:10}},
-            /* Gauge */
-            h('div',{style:{textAlign:'center',flexShrink:0}},
-              h('div',{style:{
-                width:80,height:80,borderRadius:'50%',display:'flex',flexDirection:'column',
-                alignItems:'center',justifyContent:'center',
-                background:fearGreed.value>=75?C.green+'20':fearGreed.value>=55?C.teal+'20':fearGreed.value>=45?C.warn+'20':fearGreed.value>=25?C.warn+'30':C.red+'20',
-                border:'3px solid '+(fearGreed.value>=75?C.green:fearGreed.value>=55?C.teal:fearGreed.value>=45?C.warn:fearGreed.value>=25?C.warn:C.red)
-              }},
-                h('div',{style:{fontFamily:C.mono,fontSize:22,fontWeight:700,color:fearGreed.value>=55?C.green:fearGreed.value>=45?C.warn:C.red}},fearGreed.value),
-                h('div',{style:{fontSize:8,color:C.muted}},'/100')
-              )
-            ),
-            h('div',{style:{flex:1}},
-              h('div',{style:{fontFamily:C.mono,fontSize:16,fontWeight:700,color:fearGreed.value>=75?C.green:fearGreed.value>=55?C.teal:fearGreed.value>=45?C.warn:C.red,marginBottom:2}},fearGreed.label),
-              h('div',{style:{fontSize:10,color:C.muted2,lineHeight:1.5}},
-                fearGreed.value>=75?'Extreme greed -- market may be overbought. Historically good time to take profits or add hedges.':
-                fearGreed.value>=55?'Greed -- momentum is positive. Be selective, avoid chasing.':
-                fearGreed.value>=45?'Neutral -- no strong signal. Look for individual opportunities.':
-                fearGreed.value>=25?'Fear -- market is worried. Often good buying opportunities emerge.':
-                'Extreme fear -- panic selling. Historically strong buying opportunities. Buffett buys here.'
-              )
-            )
-          ),
-          /* 7-day history bar */
-          fearGreed.history.length>1?h('div',null,
-            h('div',{style:{fontSize:10,fontWeight:700,color:C.muted2,marginBottom:4}},'7-Day History'),
-            h('div',{style:{display:'flex',gap:3,alignItems:'flex-end',height:40}},
-              fearGreed.history.map(function(d,i){
-                var col=d.val>=55?C.green:d.val>=45?C.warn:C.red;
-                var ht=Math.round(d.val/100*36);
-                return h('div',{key:i,style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2}},
-                  h('div',{style:{width:'100%',height:ht+'px',background:col,borderRadius:'2px 2px 0 0',minHeight:3}}),
-                  h('div',{style:{fontSize:8,color:C.muted,textAlign:'center',whiteSpace:'nowrap'}},d.date)
-                );
-              })
-            )
-          ):null
-        ):h('div',{style:{textAlign:'center',padding:10,color:C.muted}},'Loading Fear & Greed data...')
-      ),
+
       h('div',{className:'card',style:{marginBottom:14}},
         h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:12}},
           h('div',{style:{width:36,height:36,background:'rgba(168,85,247,.15)',border:'1px solid rgba(168,85,247,.4)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},
@@ -1448,6 +1428,7 @@ function App(){
           );
         })
       ):null
+      )
     );
   }
 
@@ -2457,26 +2438,6 @@ function App(){
         )
       ):null,
 
-      /* Graduated Stocks (crossed above $5) */
-      graduatedStocks.length>0?h('div',{className:'card',style:{marginTop:10,borderColor:C.green+'35'}},
-        h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8}},
-          h('i',{className:'ti ti-trending-up',style:{color:C.green,fontSize:16}}),
-          h('div',null,
-            h('div',{style:{fontSize:12,fontWeight:700,color:C.green}},'Graduated Stocks'),
-            h('div',{style:{fontSize:10,color:C.muted}},'These stocks crossed above $5 -- they leave the Fast Money list. Fetch live prices to update.')
-          )
-        ),
-        h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
-          graduatedStocks.map(function(s){
-            var lp=fmPrices[s.ticker];
-            return h('div',{key:s.ticker,style:{background:C.green+'10',border:'1px solid '+C.green+'30',borderRadius:5,padding:'6px 10px',display:'flex',alignItems:'center',gap:8}},
-              h('span',{style:{fontFamily:C.mono,fontWeight:700,color:C.green}},s.ticker),
-              h('span',{style:{fontFamily:C.mono,fontSize:11,color:C.textB}},'$'+(lp?lp.price.toFixed(2):s.price.toFixed(2))),
-              h('span',{style:{fontSize:9,color:C.green,fontWeight:700}},'ABOVE $5')
-            );
-          })
-        )
-      ):null
     );
   }
 
@@ -4024,6 +3985,148 @@ function App(){
           );
         })
       ):null
+      /* ── Stock Picks by Rotation Phase ── */
+      ,h('div',{className:'card',style:{marginTop:14,borderColor:currentPhase?currentPhase.color+'50':'transparent'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:12}},
+          h('div',{style:{width:36,height:36,background:'rgba(0,200,184,.15)',border:'1px solid rgba(0,200,184,.4)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},
+            h('i',{className:'ti ti-antenna-bars-5',style:{fontSize:18,color:C.teal}})),
+          h('div',null,
+            h('div',{style:{fontSize:13,fontWeight:700,color:C.textB}},'Stocks by Rotation Phase'),
+            h('div',{style:{fontSize:11,color:C.muted}},'Specific names to buy and avoid for each cycle phase. Color-coded to the active phase.')
+          )
+        ),
+        (function(){
+          var ROTATION_STOCKS={
+            early_exp:{
+              buy:[
+                {ticker:'JPM', name:'JPMorgan Chase',    reason:'Financials lead early expansion as credit loosens and loan demand rises'},
+                {ticker:'BAC', name:'Bank of America',   reason:'Net interest margin expands as rates normalize from lows'},
+                {ticker:'HD',  name:'Home Depot',        reason:'Consumer discretionary benefits as employment and confidence recover'},
+                {ticker:'F',   name:'Ford Motor',        reason:'Auto sales surge in early expansion; cyclical play'},
+                {ticker:'NUE', name:'Nucor Corp',        reason:'Steel and materials lead as construction and manufacturing restart'},
+                {ticker:'CAT', name:'Caterpillar',       reason:'Industrial machinery demand rises with infrastructure spend'},
+                {ticker:'X',   name:'US Steel',          reason:'Materials sector outperforms in early expansion phase'},
+                {ticker:'DHI', name:'D.R. Horton',       reason:'Homebuilders benefit from low rates and pent-up demand'},
+              ],
+              sell:[
+                {ticker:'NEE', name:'NextEra Energy',   reason:'Utilities underperform when money rotates to cyclicals'},
+                {ticker:'KO',  name:'Coca-Cola',        reason:'Defensive staples lag as risk appetite returns'},
+                {ticker:'PG',  name:'Procter & Gamble', reason:'Low-beta staples trail cyclicals in recovery'},
+                {ticker:'O',   name:'Realty Income',    reason:'REITs underperform when rates normalize from lows'},
+              ]
+            },
+            mid_exp:{
+              buy:[
+                {ticker:'NVDA', name:'Nvidia',          reason:'Tech leads mid-expansion; AI capex cycle in full swing'},
+                {ticker:'MSFT', name:'Microsoft',       reason:'Enterprise tech spending accelerates in healthy economy'},
+                {ticker:'AAPL', name:'Apple',           reason:'Consumer electronics demand peaks in mid-cycle'},
+                {ticker:'XOM',  name:'ExxonMobil',      reason:'Energy demand rises with industrial activity and travel'},
+                {ticker:'GE',   name:'GE Aerospace',    reason:'Industrial orders backlog highest in mid-expansion'},
+                {ticker:'UPS',  name:'UPS',             reason:'Shipping volume peaks as economic activity is at full speed'},
+                {ticker:'AMD',  name:'Advanced Micro',  reason:'Semiconductor capex and data center build-out continues'},
+                {ticker:'DE',   name:'John Deere',      reason:'Equipment demand high; ag and construction both strong'},
+              ],
+              sell:[
+                {ticker:'TLT', name:'20yr Treasury ETF',reason:'Bonds underperform as Fed holds rates steady or hikes'},
+                {ticker:'GLD', name:'Gold ETF',         reason:'Gold underperforms in strong growth with no crisis fear'},
+                {ticker:'VZ',  name:'Verizon',          reason:'Telecom is defensive and lags in strong growth cycle'},
+                {ticker:'T',   name:'AT&T',             reason:'High-dividend defensives trail growth in mid-expansion'},
+              ]
+            },
+            late_exp:{
+              buy:[
+                {ticker:'XOM',  name:'ExxonMobil',      reason:'Energy peaks late cycle as demand is highest and supply tight'},
+                {ticker:'CVX',  name:'Chevron',          reason:'Oil majors outperform as commodity prices peak'},
+                {ticker:'BX',   name:'Blackstone',       reason:'Real assets and alternatives attract capital pre-recession fear'},
+                {ticker:'FCX',  name:'Freeport McMoRan', reason:'Copper and materials spike late cycle as inflation runs hot'},
+                {ticker:'LMT',  name:'Lockheed Martin',  reason:'Defense spending is countercyclical; budget appropriations locked in'},
+                {ticker:'RTX',  name:'RTX Corp',         reason:'Defense stable; late-cycle rotation to value and defense'},
+                {ticker:'WMT',  name:'Walmart',          reason:'Start rotating to defensive staples before slowdown'},
+                {ticker:'COST', name:'Costco',           reason:'Value-focused consumer staples gain as consumers tighten'},
+              ],
+              sell:[
+                {ticker:'AMZN', name:'Amazon',          reason:'Discretionary spending slows as rates bite and consumers pull back'},
+                {ticker:'TSLA', name:'Tesla',           reason:'High-multiple growth names underperform late cycle'},
+                {ticker:'META', name:'Meta',            reason:'Ad spending softens ahead of recession; valuation vulnerable'},
+                {ticker:'COIN', name:'Coinbase',        reason:'Risk assets including crypto peak and reverse late cycle'},
+              ]
+            },
+            recession:{
+              buy:[
+                {ticker:'JNJ',  name:'Johnson & Johnson',reason:'Healthcare is the ultimate defensive; demand inelastic'},
+                {ticker:'PG',   name:'Procter & Gamble', reason:'Staples hold value; consumer needs are non-discretionary'},
+                {ticker:'NEE',  name:'NextEra Energy',   reason:'Utilities are recession-proof; regulated revenue streams'},
+                {ticker:'GLD',  name:'Gold ETF',         reason:'Gold is the classic flight to safety in downturns'},
+                {ticker:'TLT',  name:'20yr Treasury ETF',reason:'Bonds rally as Fed cuts; duration is rewarded in recession'},
+                {ticker:'BND',  name:'Total Bond Market',reason:'Fixed income outperforms equities in contracting economies'},
+                {ticker:'KO',   name:'Coca-Cola',        reason:'Beverage staples maintain earnings through any downturn'},
+                {ticker:'WMT',  name:'Walmart',          reason:'Discount retail wins as consumers trade down'},
+              ],
+              sell:[
+                {ticker:'CAT', name:'Caterpillar',      reason:'Industrial orders collapse; capex first to be cut'},
+                {ticker:'F',   name:'Ford Motor',       reason:'Auto sales crash in recessions; credit tightens'},
+                {ticker:'NVDA',name:'Nvidia',           reason:'Capex pull-back hits data center; multiple compression'},
+                {ticker:'BA',  name:'Boeing',           reason:'Commercial aerospace orders dry up in downturns'},
+              ]
+            }
+          };
+
+          var phase_stocks=ROTATION_STOCKS[CURRENT_PHASE];
+          if(!phase_stocks)return null;
+
+          /* Portfolio overlap -- which of these do you own? */
+          var portTickers=positions.map(function(p){return p.ticker;});
+
+          return h('div',null,
+            h('div',{style:{background:currentPhase?currentPhase.color+'12':C.surf2,border:'1px solid '+(currentPhase?currentPhase.color+'40':C.brd),borderRadius:6,padding:'10px 14px',marginBottom:12,display:'flex',gap:10,alignItems:'center'}},
+              h('i',{className:'ti ti-info-circle',style:{color:currentPhase?currentPhase.color:C.teal,fontSize:16,flexShrink:0}}),
+              h('div',{style:{fontSize:11,color:C.textB,lineHeight:1.6}},
+                h('b',null,'Current Phase: '+(currentPhase?currentPhase.label:'Unknown')+' ('+PHASE_CONFIDENCE+'% confidence)'),
+                h('br',null),
+                'Showing stocks that historically outperform (BUY) and underperform (AVOID) in this phase. ',
+                'Your portfolio holdings are highlighted.'
+              )
+            ),
+            h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
+              /* BUY column */
+              h('div',null,
+                h('div',{style:{fontSize:11,fontWeight:700,color:C.green,marginBottom:8,display:'flex',alignItems:'center',gap:5}},
+                  h('i',{className:'ti ti-trending-up'}),
+                  ' BUY -- Outperforms in '+(currentPhase?currentPhase.label:'this phase')),
+                phase_stocks.buy.map(function(s){
+                  var inPort=portTickers.indexOf(s.ticker)>=0;
+                  return h('div',{key:s.ticker,style:{background:inPort?C.green+'0A':C.surf2,border:'1px solid '+(inPort?C.green+'50':C.brd),borderRadius:5,padding:'8px 10px',marginBottom:6}},
+                    h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:3}},
+                      h('span',{style:{fontFamily:C.mono,fontWeight:700,color:C.textB,fontSize:12}},s.ticker),
+                      inPort?h('span',{style:{fontSize:9,background:C.green+'20',color:C.green,border:'1px solid '+C.green+'40',padding:'0 4px',borderRadius:2,fontWeight:700}},'IN YOUR PORT'):null,
+                      h('span',{style:{fontSize:10,color:C.muted}},s.name)
+                    ),
+                    h('div',{style:{fontSize:10,color:C.muted2,lineHeight:1.4}},s.reason)
+                  );
+                })
+              ),
+              /* SELL/AVOID column */
+              h('div',null,
+                h('div',{style:{fontSize:11,fontWeight:700,color:C.red,marginBottom:8,display:'flex',alignItems:'center',gap:5}},
+                  h('i',{className:'ti ti-trending-down'}),
+                  ' AVOID -- Underperforms in '+(currentPhase?currentPhase.label:'this phase')),
+                phase_stocks.sell.map(function(s){
+                  var inPort=portTickers.indexOf(s.ticker)>=0;
+                  return h('div',{key:s.ticker,style:{background:inPort?C.red+'0A':C.surf2,border:'1px solid '+(inPort?C.red+'50':C.brd),borderRadius:5,padding:'8px 10px',marginBottom:6}},
+                    h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:3}},
+                      h('span',{style:{fontFamily:C.mono,fontWeight:700,color:C.textB,fontSize:12}},s.ticker),
+                      inPort?h('span',{style:{fontSize:9,background:C.red+'20',color:C.red,border:'1px solid '+C.red+'40',padding:'0 4px',borderRadius:2,fontWeight:700}},'IN YOUR PORT -- REVIEW'):null,
+                      h('span',{style:{fontSize:10,color:C.muted}},s.name)
+                    ),
+                    h('div',{style:{fontSize:10,color:C.muted2,lineHeight:1.4}},s.reason)
+                  );
+                })
+              )
+            )
+          );
+        })()
+      )
+
     );
   }
 
@@ -7451,7 +7554,7 @@ function App(){
     /* and CNN's market API for equity F&G */
     function fetchFearGreed(){
       setFgLoad(true);
-      fetch('https://api.alternative.me/fng/?limit=7',{cache:'no-store'})
+      corsFetch('https://api.alternative.me/fng/?limit=7')
         .then(function(r){return r.json();})
         .then(function(data){
           var current=data&&data.data&&data.data[0];
@@ -13990,6 +14093,204 @@ function App(){
   }
 
 
+
+  /* ================================================================
+     TabProfile -- Personal Financial Profile & Benchmarks
+     ================================================================ */
+  function TabProfile(){
+    var LS_PROF='apex_profile_v1';
+    var sp=useState(function(){return lsGet(LS_PROF,{
+      age:35,income:120000,state:'CA',filingStatus:'single',
+      monthlyExpenses:4500,emergencyFund:15000,
+      retirementGoal:1500000,retireAge:65,
+      hasHealth:true,hasLife:false,has401k:true,matchPct:4,
+      creditScore:720,homesOwned:0,dependents:0,riskTol:'moderate'
+    });});
+    var prof=sp[0],setProf=sp[1];
+    var ss=useState(false),saved=ss[0],setSaved=ss[1];
+
+    function upd(k,v){setProf(function(p){return Object.assign({},p,{[k]:v});});}
+    function save(){lsSet(LS_PROF,prof);setSaved(true);setTimeout(function(){setSaved(false);},2000);}
+
+    /* Computed benchmarks */
+    var age=parseInt(prof.age)||35;
+    var income=parseInt(prof.income)||100000;
+    var totalPort=positions.reduce(function(s,p){return s+(p.price||0)*p.shares;},0);
+    var monthlyIncome=income/12;
+    var expenses=parseInt(prof.monthlyExpenses)||4000;
+    var retireAge=parseInt(prof.retireAge)||65;
+    var yearsToRetire=Math.max(0,retireAge-age);
+    var retireGoal=parseInt(prof.retirementGoal)||1000000;
+
+    /* Benchmarks by age group */
+    /* Source: Federal Reserve Survey of Consumer Finances medians */
+    var AGE_BENCHMARKS={
+      25:{median_nw:10000,  top25_nw:60000,   med_save_rate:6,  med_port:8000,   label:'25-34'},
+      35:{median_nw:90000,  top25_nw:250000,  med_save_rate:8,  med_port:45000,  label:'35-44'},
+      45:{median_nw:168000, top25_nw:500000,  med_save_rate:10, med_port:120000, label:'45-54'},
+      55:{median_nw:212000, top25_nw:850000,  med_save_rate:12, med_port:250000, label:'55-64'},
+      65:{median_nw:266000, top25_nw:1200000, med_save_rate:0,  med_port:450000, label:'65+'},
+    };
+    var ageGroup=age<35?25:age<45?35:age<55?45:age<65?55:65;
+    var bench=AGE_BENCHMARKS[ageGroup];
+
+    /* Retirement readiness */
+    /* Rule of thumb: save 15% of income, have 10x salary saved by 67 */
+    var targetSaved=income*(age-22)*0.15; /* rough estimate */
+    var onTrack=totalPort>=targetSaved*0.8;
+
+    /* Emergency fund */
+    var efMonths=expenses>0?prof.emergencyFund/expenses:0;
+    var efOk=efMonths>=3;
+    var efIdeal=efMonths>=6;
+
+    /* Fidelity age multipliers: 1x at 30, 2x at 35, 3x at 40, 6x at 50, 8x at 60, 10x at 67 */
+    var fidelityMultipliers={30:1,35:2,40:3,45:4,50:6,55:7,60:8,67:10};
+    var nearestAge=Object.keys(fidelityMultipliers).reduce(function(prev,cur){
+      return Math.abs(cur-age)<Math.abs(prev-age)?parseInt(cur):prev;
+    },30);
+    var fidelityTarget=fidelityMultipliers[nearestAge]*income;
+
+    function pctBar(val,target,color){
+      var pct=target>0?Math.min(100,val/target*100):0;
+      return h('div',{style:{marginTop:4}},
+        h('div',{style:{height:6,background:C.brd,borderRadius:3,overflow:'hidden'}},
+          h('div',{style:{width:pct+'%',height:'100%',background:color,borderRadius:3,transition:'width .4s'}})),
+        h('div',{style:{fontSize:9,color:C.muted,marginTop:2}},Math.round(pct)+'% of target')
+      );
+    }
+
+    var STATES=['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
+
+    var inp=function(label,key,type,opts){
+      return h('div',{style:{marginBottom:10}},
+        h('div',{style:{fontSize:10,color:C.muted,marginBottom:3,fontWeight:600}},label),
+        type==='select'?
+          h('select',{className:'finp',value:prof[key],onChange:function(e){upd(key,e.target.value);}},
+            (opts||[]).map(function(o){return h('option',{key:o.v,value:o.v},o.l);})):
+        type==='checkbox'?
+          h('label',{style:{display:'flex',alignItems:'center',gap:6,cursor:'pointer',fontSize:11,color:C.textB}},
+            h('input',{type:'checkbox',checked:!!prof[key],onChange:function(e){upd(key,e.target.checked);},style:{width:14,height:14}}),
+            'Yes'):
+          h('input',{type:'text',className:'finp',autoComplete:'off',
+            value:prof[key]||'',onChange:function(e){
+              var v=e.target.value;
+              upd(key,type==='number'?v:v);
+            },placeholder:''})
+      );
+    };
+
+    return h('div',null,
+      h('div',{className:'card',style:{marginBottom:14}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:14}},
+          h('div',{style:{width:36,height:36,background:'rgba(168,85,247,.15)',border:'1px solid rgba(168,85,247,.4)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},
+            h('i',{className:'ti ti-user-check',style:{fontSize:18,color:C.purple}})),
+          h('div',null,
+            h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'My Financial Profile'),
+            h('div',{style:{fontSize:11,color:C.muted}},'Enter your details to see how you compare to national benchmarks by age group.')),
+          h('button',{className:'btn btn-p',style:{marginLeft:'auto',fontSize:11},onClick:save},
+            saved?h(Fragment,null,h('i',{className:'ti ti-check'}),' Saved!'):h(Fragment,null,h('i',{className:'ti ti-device-floppy'}),' Save Profile'))
+        ),
+        h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}},
+          /* Column 1: Personal */
+          h('div',null,
+            h('div',{style:{fontSize:11,fontWeight:700,color:C.purple,marginBottom:8,paddingBottom:4,borderBottom:'1px solid '+C.brd}},'Personal'),
+            inp('Age','age','number'),
+            inp('State','state','select',STATES.map(function(s){return {v:s,l:s};})),
+            inp('Filing Status','filingStatus','select',[{v:'single',l:'Single'},{v:'married',l:'Married Filing Jointly'},{v:'hoh',l:'Head of Household'}]),
+            inp('Dependents','dependents','number'),
+            inp('Risk Tolerance','riskTol','select',[{v:'conservative',l:'Conservative'},{v:'moderate',l:'Moderate'},{v:'aggressive',l:'Aggressive'}])
+          ),
+          /* Column 2: Financial */
+          h('div',null,
+            h('div',{style:{fontSize:11,fontWeight:700,color:C.blue,marginBottom:8,paddingBottom:4,borderBottom:'1px solid '+C.brd}},'Finances'),
+            inp('Annual Income ($)','income','number'),
+            inp('Monthly Expenses ($)','monthlyExpenses','number'),
+            inp('Emergency Fund ($)','emergencyFund','number'),
+            inp('Credit Score','creditScore','number'),
+            inp('Homes Owned','homesOwned','number')
+          ),
+          /* Column 3: Retirement */
+          h('div',null,
+            h('div',{style:{fontSize:11,fontWeight:700,color:C.green,marginBottom:8,paddingBottom:4,borderBottom:'1px solid '+C.brd}},'Retirement & Benefits'),
+            inp('Retirement Goal ($)','retirementGoal','number'),
+            inp('Target Retire Age','retireAge','number'),
+            inp('Has Health Insurance','hasHealth','checkbox'),
+            inp('Has Life Insurance','hasLife','checkbox'),
+            inp('Has 401k/403b','has401k','checkbox'),
+            inp('Employer Match (%)','matchPct','number')
+          )
+        )
+      ),
+
+      /* Benchmark Scorecard */
+      h('div',{className:'card',style:{marginBottom:14}},
+        h('div',{style:{fontSize:13,fontWeight:700,color:C.textB,marginBottom:12}},
+          h('i',{className:'ti ti-chart-bar',style:{color:C.purple,marginRight:6}}),
+          'How You Compare -- Age Group '+bench.label),
+        h('div',{style:{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10,marginBottom:14}},
+          /* Portfolio vs median */
+          h('div',{className:'card',style:{background:C.surf2}},
+            h('div',{style:{fontSize:10,color:C.muted,marginBottom:2}},'Your Portfolio vs Age Median'),
+            h('div',{style:{fontFamily:C.mono,fontSize:18,fontWeight:700,color:totalPort>=bench.top25_nw?C.green:totalPort>=bench.median_nw?C.teal:C.warn}},
+              '$'+Math.round(totalPort).toLocaleString()),
+            h('div',{style:{fontSize:10,color:C.muted}},
+              'Median: $'+bench.median_nw.toLocaleString()+' | Top 25%: $'+bench.top25_nw.toLocaleString()),
+            pctBar(totalPort,bench.top25_nw,totalPort>=bench.top25_nw?C.green:totalPort>=bench.median_nw?C.teal:C.warn)
+          ),
+          /* Fidelity guideline */
+          h('div',{className:'card',style:{background:C.surf2}},
+            h('div',{style:{fontSize:10,color:C.muted,marginBottom:2}},'Fidelity Guideline ('+nearestAge+'x salary)'),
+            h('div',{style:{fontFamily:C.mono,fontSize:18,fontWeight:700,color:onTrack?C.green:C.warn}},
+              '$'+Math.round(totalPort).toLocaleString()),
+            h('div',{style:{fontSize:10,color:C.muted}},'Target: $'+fidelityTarget.toLocaleString()+' ('+(nearestAge)+'x $'+Math.round(income/1000)+'K salary)'),
+            pctBar(totalPort,fidelityTarget,onTrack?C.green:C.warn)
+          ),
+          /* Emergency fund */
+          h('div',{className:'card',style:{background:C.surf2}},
+            h('div',{style:{fontSize:10,color:C.muted,marginBottom:2}},'Emergency Fund Coverage'),
+            h('div',{style:{fontFamily:C.mono,fontSize:18,fontWeight:700,color:efIdeal?C.green:efOk?C.teal:C.red}},
+              efMonths.toFixed(1)+' months'),
+            h('div',{style:{fontSize:10,color:C.muted}},'Recommended: 3-6 months of expenses ($'+Math.round(expenses*3).toLocaleString()+' - $'+Math.round(expenses*6).toLocaleString()+')'),
+            pctBar(efMonths,6,efIdeal?C.green:efOk?C.teal:C.red)
+          ),
+          /* Years to retirement */
+          h('div',{className:'card',style:{background:C.surf2}},
+            h('div',{style:{fontSize:10,color:C.muted,marginBottom:2}},'Years to Target Retirement'),
+            h('div',{style:{fontFamily:C.mono,fontSize:18,fontWeight:700,color:yearsToRetire<10?C.warn:C.blue}},
+              yearsToRetire+' years'),
+            h('div',{style:{fontSize:10,color:C.muted}},'Target retire at '+retireAge+' | Current age '+age),
+            h('div',{style:{fontSize:10,color:C.muted2,marginTop:4}},
+              'Need to save ~$'+Math.round((retireGoal-totalPort)/Math.max(1,yearsToRetire*12)).toLocaleString()+'/mo to reach $'+Math.round(retireGoal/1000)+'K goal')
+          )
+        ),
+
+        /* Action items */
+        h('div',{style:{fontSize:12,fontWeight:700,color:C.textB,marginBottom:8}},'Action Items'),
+        h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+          [
+            [!efOk,'Emergency Fund',C.red,'Build emergency fund to at least $'+Math.round(expenses*3).toLocaleString()+' (3 months of expenses). Keep in HYSA.'],
+            [!prof.hasHealth,'Health Insurance',C.red,'No health insurance noted -- medical expenses are the #1 cause of bankruptcy. Review options.'],
+            [prof.has401k&&prof.matchPct>0&&totalPort<income,'401k Match',C.warn,'Make sure you are contributing at least '+prof.matchPct+'% to capture your full employer match -- that is a 100% return.'],
+            [!prof.hasLife&&parseInt(prof.dependents)>0,'Life Insurance',C.warn,'You have dependents but no life insurance. Consider term life coverage of 10-12x income.'],
+            [parseInt(prof.creditScore)<700,'Credit Score',C.warn,'Credit score below 700 costs you on mortgages, auto loans, and insurance. Pay down cards and dispute errors.'],
+            [totalPort<bench.median_nw,'Portfolio vs Peers',C.blue,'Your portfolio is below the median for your age group. Increase savings rate or consider index fund approach.'],
+            [onTrack&&efIdeal&&prof.hasHealth,'On Track',C.green,'Your financial foundation looks solid. Focus on keeping costs low and staying diversified.'],
+          ].filter(function(x){return x[0];}).map(function(x,i){
+            return h('div',{key:i,style:{display:'flex',gap:10,background:x[2]+'08',border:'1px solid '+x[2]+'25',borderRadius:5,padding:'8px 12px'}},
+              h('i',{className:'ti '+(x[2]===C.green?'ti-circle-check':x[2]===C.red?'ti-alert-triangle':'ti-info-circle'),style:{color:x[2],fontSize:16,flexShrink:0,marginTop:1}}),
+              h('div',null,
+                h('div',{style:{fontSize:11,fontWeight:700,color:x[2]}},x[1]),
+                h('div',{style:{fontSize:11,color:C.muted2,lineHeight:1.5}},x[3])
+              )
+            );
+          })
+        )
+      )
+    );
+  }
+
+
   /* ================================================================
      TabInsurance -- Life Insurance Rates & AI Guidance
      ================================================================ */
@@ -16517,7 +16818,9 @@ function App(){
               hasKey?h('span',{style:{fontSize:9,background:C.green+'20',color:C.green,border:'1px solid '+C.green+'40',padding:'2px 6px',borderRadius:2,fontWeight:700}},'KEY SAVED'):null,
               isActive?h('span',{style:{fontSize:9,background:C.gold+'20',color:C.gold,border:'1px solid '+C.gold+'40',padding:'2px 6px',borderRadius:2,fontWeight:700}},'ACTIVE'):null
             ),
-            h('div',{style:{fontSize:11,color:C.muted,marginTop:1}},prov.desc)
+            h('div',{style:{fontSize:11,color:prov.corsOk===false?C.red:C.muted,marginTop:1}},prov.desc),
+          prov.corsOk===false?h('div',{style:{fontSize:10,color:C.red,background:C.red+'10',border:'1px solid '+C.red+'25',borderRadius:3,padding:'3px 7px',marginTop:4,display:'flex',alignItems:'center',gap:5}},
+            h('i',{className:'ti ti-ban',style:{fontSize:11}}),' CORS blocked -- cannot call from a local HTML file'):null
           ),
           h('div',{style:{display:'flex',gap:6,flexShrink:0}},
             !isActive?Btn('btn-d',{fontSize:10,padding:'4px 10px'},function(){if(isAI){setAI(prov.id);}else{setPP(prov.id);}},false,'Set active'):null,
@@ -16542,6 +16845,16 @@ function App(){
           h('span',{style:{color:C.green,fontWeight:700}},'Use OpenAI (GPT-4o) or Gemini instead'),
           ' - both work perfectly from local files. Add one of those keys below and set it as Active.'
         ):null
+      ),
+      h('div',{style:{background:'rgba(77,158,255,.08)',border:'1px solid rgba(77,158,255,.3)',borderRadius:6,padding:'10px 14px',marginBottom:10,fontSize:11,color:C.textB,display:'flex',alignItems:'flex-start',gap:8}},
+        h('i',{className:'ti ti-info-circle',style:{color:C.blue,fontSize:16,flexShrink:0,marginTop:1}}),
+        h('div',null,
+          h('b',null,'Gemini 2.0 Flash is recommended -- it is free and works from local files.'),
+          h('br',null),
+          'Get a free key at ',h('a',{href:'https://aistudio.google.com/app/apikey',target:'_blank',rel:'noopener noreferrer',style:{color:C.blue}},'aistudio.google.com'),' in under 60 seconds. ',
+          'OpenAI and Grok also work. ',
+          h('b',{style:{color:C.red}},'Claude (Anthropic) is blocked by browsers when running from a local file.')
+        )
       ),
       secLbl('ti-brain','AI providers - for Stock Advisor & Event Plays',null),
       h('div',{style:{background:C.surf2,border:'1px solid '+C.brd,borderRadius:5,padding:'8px 12px',marginBottom:12,fontSize:11,color:C.muted}},h('i',{className:'ti ti-info-circle'}),' Select your active AI provider.'),
@@ -16744,6 +17057,7 @@ function App(){
     if(tab==='funds'){return h(TabFunds,null);}
     if(tab==='options'){return h(TabOptions,null);}
     if(tab==='credit'){return h(TabCredit,null);}
+    if(tab==='profile'){return h(TabProfile,null);}
     if(tab==='insurance'){return h(TabInsurance,null);}
     if(tab==='retirement'){return h(TabRetirement,null);}
     if(tab==='analysis'){return h(TabAnalysis,null);}
@@ -17038,15 +17352,64 @@ function App(){
             h('div',{style:{fontSize:9,fontWeight:700,color:C.muted2,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:4,padding:'0 2px'}},
               h('i',{className:'ti ti-satellite',style:{marginRight:4}}),'Market Intelligence'
             ),
-            SEED_ALERTS.map(function(a,i){
-              return h('div',{key:i,className:'alert-item'},
-                h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:3}},
-                  h('div',{style:{display:'flex',alignItems:'center',gap:6}},sevPill(a.severity),h('span',{className:'pill p-blue'},a.ticker)),
-                  h('div',{style:{textAlign:'right'}},h('div',{style:{fontSize:11,fontFamily:C.mono,color:C.muted2,fontWeight:600}},a.time+' ET'),h('div',{style:{fontSize:9,fontFamily:C.mono,color:C.muted}},a.date))
-                ),
-                h('div',{style:{fontSize:11,color:C.muted2}},a.detail.substring(0,72)+(a.detail.length>72?'...':''))
+(function(){
+              /* Build live market intelligence from portfolio positions + live prices */
+              var now=new Date();
+              var timeStr=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+              var dateStr=now.toLocaleDateString([],{month:'short',day:'numeric'});
+              var liveAlerts=[];
+
+              /* Check each position for price signals */
+              positions.forEach(function(p){
+                var lp=livePrices[p.ticker];
+                if(!lp)return;
+                var chgPct=p.price>0?(lp-p.price)/p.price*100:0;
+                var gainLoss=(lp-p.avgCost)*p.shares;
+                /* Big movers */
+                if(Math.abs(chgPct)>=3){
+                  liveAlerts.push({ticker:p.ticker,severity:Math.abs(chgPct)>=5?'HIGH':'MEDIUM',
+                    detail:p.ticker+' '+(chgPct>0?'+':'')+chgPct.toFixed(1)+'% today | $'+lp.toFixed(2),
+                    time:timeStr,date:dateStr});
+                }
+                /* Significant P&L */
+                if(Math.abs(gainLoss)>=1000){
+                  liveAlerts.push({ticker:p.ticker,severity:gainLoss>0?'LOW':'MEDIUM',
+                    detail:'P&L: '+(gainLoss>0?'+':'-')+'$'+Math.abs(gainLoss).toFixed(0)+' vs avg cost $'+p.avgCost.toFixed(2),
+                    time:timeStr,date:dateStr});
+                }
+              });
+
+              /* Watchlist movers */
+              watchlist.forEach(function(w){
+                var lp=livePrices[w.ticker];
+                if(!lp)return;
+                var chgPct=w.price>0?(lp-w.price)/w.price*100:0;
+                if(Math.abs(chgPct)>=4){
+                  liveAlerts.push({ticker:w.ticker,severity:'MEDIUM',
+                    detail:'Watchlist: '+w.ticker+' '+(chgPct>0?'+':'')+chgPct.toFixed(1)+'% | $'+lp.toFixed(2),
+                    time:timeStr,date:dateStr});
+                }
+              });
+
+              /* Fall back to seed data if no live prices loaded */
+              var displayAlerts=liveAlerts.length>0?liveAlerts:SEED_ALERTS;
+              var isLive=liveAlerts.length>0;
+
+              return h('div',null,
+                isLive?null:h('div',{style:{fontSize:9,color:C.muted,marginBottom:4,fontStyle:'italic'}},
+                  h('i',{className:'ti ti-database',style:{marginRight:3,fontSize:9}}),
+                  'Refresh prices for live signals'),
+                displayAlerts.map(function(a,i){
+                  return h('div',{key:i,className:'alert-item'},
+                    h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:3}},
+                      h('div',{style:{display:'flex',alignItems:'center',gap:6}},sevPill(a.severity),h('span',{className:'pill p-blue'},a.ticker)),
+                      h('div',{style:{textAlign:'right'}},h('div',{style:{fontSize:11,fontFamily:C.mono,color:C.muted2,fontWeight:600}},a.time+' ET'),h('div',{style:{fontSize:9,fontFamily:C.mono,color:C.muted}},a.date))
+                    ),
+                    h('div',{style:{fontSize:11,color:C.muted2}},a.detail.substring(0,72)+(a.detail.length>72?'...':''))
+                  );
+                })
               );
-            })
+            })()
           )
         )
       )
