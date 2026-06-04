@@ -147,8 +147,16 @@ input,select,textarea,button{font-family:Inter,sans-serif}
   .nav2-grp{padding:6px 10px;font-size:11px}
   .nav2-tabs{padding:4px 8px;gap:3px}
   .tab-btn{padding:5px 8px;font-size:10px}
-  .main{padding:10px 12px}
+  .main{padding:8px 10px}
   .sidebar{display:none}
+  /* Collapse 3-col grids to 2-col on tablet */
+  div[style*="repeat(3,1fr)"]{grid-template-columns:repeat(2,1fr)!important}
+  div[style*="repeat(4,1fr)"]{grid-template-columns:repeat(2,1fr)!important}
+  /* Watchlist and position card fonts */
+  .card{padding:10px 12px}
+  /* Overflow tables get horizontal scroll */
+  table{min-width:500px}
+  div.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   body.show-sidebar .sidebar{display:flex;position:fixed;right:0;top:0;bottom:0;width:85vw;max-width:320px;z-index:500;box-shadow:-4px 0 20px rgba(0,0,0,.5)}
   body.show-sidebar .sidebar-overlay{display:block}
   .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:499}
@@ -171,9 +179,27 @@ input,select,textarea,button{font-family:Inter,sans-serif}
 @media (max-width: 480px){
   .metrics{grid-template-columns:1fr!important}
   div[style*="repeat(2,1fr)"]{display:block!important}
-  .nav2-tabs{flex-wrap:nowrap;overflow-x:auto;padding:3px 6px}
+  div[style*="repeat(3,1fr)"]{display:block!important}
+  div[style*="repeat(4,1fr)"]{display:block!important}
+  .nav2-tabs{flex-wrap:nowrap;overflow-x:auto;padding:3px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .nav2-tabs::-webkit-scrollbar{display:none}
   .tab-btn{white-space:nowrap;font-size:9px;padding:4px 7px}
   input[placeholder*="Search"]{width:80px!important}
+  .card{padding:10px 10px!important}
+  table{font-size:9px!important}
+  table th,table td{padding:3px 4px!important}
+  /* Sector comparison bars - stack labels */
+  div[style*="width:130"]{width:80px!important;font-size:8px!important}
+  /* Options chain overflow */
+  div[style*="overflowX:auto"]{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  /* Header buttons wrap */
+  .hdr>div:last-child button{font-size:9px;padding:4px 6px}
+  /* Detail panel full width */
+  .sidebar{max-width:100vw!important}
+  /* Positions filter bar wraps nicely */
+  div[style*="flex-wrap:wrap"]{gap:4px!important}
+  /* Score bars readable */
+  div[style*="height:6px"]{height:4px!important}
 }
 /* Mobile sidebar toggle button */
 .mob-sidebar-btn{display:none}
@@ -199,6 +225,19 @@ input,select,textarea,button{font-family:Inter,sans-serif}
 }
 .print-show{display:none}
 </style>
+<script>
+(function(){
+  try{
+    var t=JSON.parse(localStorage.getItem('apex_theme')||'null')||localStorage.getItem('apex_theme');
+    if(t==='light'){document.documentElement.classList.add('light');}
+    else if(t==='system'||!t){
+      if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches){
+        document.documentElement.classList.add('light');
+      }
+    }
+  }catch(e){}
+})();
+</script>
 </head>
 <body>
 <div id="root"></div>
@@ -360,7 +399,7 @@ async function fetchPrice(ticker,keys,prov){
   const t=ticker.toUpperCase(),key=keys[prov]||"";
   if(!key&&prov!=="yahoo")throw new Error("No price API key for "+prov+". Go to Settings tab to add your key.");
   if(prov==="alphavantage"){
-    const r=await fetch("https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol="+encodeURIComponent(t)+"&apikey="+key,{cache:"no-store"});
+    const r=await corsFetch("https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol="+encodeURIComponent(t)+"&apikey="+key,{cache:"no-store"});
     const d=await r.json();
     if(d["Note"]||d["Information"])throw new Error("Rate limit reached -- try again later");
     const q=d["Global Quote"];
@@ -368,13 +407,13 @@ async function fetchPrice(ticker,keys,prov){
     return{price:+q["05. price"],change:+q["09. change"],changePct:parseFloat((q["10. change percent"]||"0%").replace("%","")),high:+q["03. high"],low:+q["04. low"],volume:+q["06. volume"],prevClose:+q["08. previous close"],open:+q["02. open"],tradingDay:q["07. latest trading day"],fetchedAt:new Date().toISOString(),source:"Alpha Vantage"};
   }
   if(prov==="finnhub"){
-    const r=await fetch("https://finnhub.io/api/v1/quote?symbol="+t+"&token="+key);
+    const r=await corsFetch("https://finnhub.io/api/v1/quote?symbol="+t+"&token="+key);
     const d=await r.json();
     if(!d.c||d.c===0)throw new Error("No data for "+t);
     return{price:d.c,change:d.d,changePct:d.dp,high:d.h,low:d.l,prevClose:d.pc,open:d.o||d.pc,volume:0,tradingDay:new Date().toISOString().slice(0,10),fetchedAt:new Date().toISOString(),source:"Finnhub"};
   }
   if(prov==="fmp"){
-    const r=await fetch("https://financialmodelingprep.com/api/v3/quote/"+t+"?apikey="+key);
+    const r=await corsFetch("https://financialmodelingprep.com/api/v3/quote/"+t+"?apikey="+key);
     const d=await r.json();
     if(!d[0])throw new Error("No data for "+t);
     const q=d[0];
@@ -382,7 +421,7 @@ async function fetchPrice(ticker,keys,prov){
   }
   if(prov==="tiingo"){
     const today=new Date().toISOString().slice(0,10);
-    const r=await fetch("https://api.tiingo.com/tiingo/daily/"+t+"/prices?startDate="+today+"&token="+key);
+    const r=await corsFetch("https://api.tiingo.com/tiingo/daily/"+t+"/prices?startDate="+today+"&token="+key);
     const d=await r.json();
     if(!d[0])throw new Error("No data for "+t);
     const q=d[0];
@@ -390,7 +429,7 @@ async function fetchPrice(ticker,keys,prov){
   }
   if(prov==="alpaca"){
     const parts=key.split(":");
-    const r=await fetch("https://data.alpaca.markets/v2/stocks/"+t+"/bars/latest",{headers:{"APCA-API-KEY-ID":parts[0]||key,"APCA-API-SECRET-KEY":parts[1]||""}});
+    const r=await corsFetch("https://data.alpaca.markets/v2/stocks/"+t+"/bars/latest",{headers:{"APCA-API-KEY-ID":parts[0]||key,"APCA-API-SECRET-KEY":parts[1]||""}});
     const d=await r.json();
     if(!d.bar)throw new Error("No data for "+t);
     const b=d.bar;
@@ -416,9 +455,13 @@ async function fetchPrice(ticker,keys,prov){
 }
 
 /* ===== AI CALLER ===== */
-async function callAI(prompt,keys,aiProv,maxTok){
+async function callAI(prompt,keys,aiProv,maxTok,goals){
   maxTok=maxTok||1800;
   const key=keys[aiProv]||"";
+  /* Prepend investor profile/goals to every prompt if set */
+  if(goals&&goals.trim()){
+    prompt='[INVESTOR PROFILE: '+goals.trim()+']\n\nWith that context in mind:\n\n'+prompt;
+  }
 
   /* Anthropic blocks CORS from browsers -- cannot call from file:// or any frontend */
   if(aiProv==="claude"){
@@ -560,7 +603,11 @@ function DetailPanel(props){
   var smsg=useState(''), msg=smsg[0], setMsg=smsg[1];
   var snt=useState(item&&item.notes||''), noteText=snt[0], setNoteText=snt[1];
   var sne=useState(false), editingNote=sne[0], setEditingNote=sne[1];
-  useEffect(function(){setMp('');setShowM(false);setFetching(false);setMsg('');setNoteText(item&&item.notes||'');setEditingNote(false);}, [item&&item.ticker]);
+  var sep=useState(false), showEditPos=sep[0], setShowEditPos=sep[1];
+  var ses=useState(''), editShares=ses[0], setEditShares=ses[1];
+  var sec=useState(''), editCost=sec[0], setEditCost=sec[1];
+  var onEditPosition=props.onEditPosition||function(){};
+  useEffect(function(){setMp('');setShowM(false);setFetching(false);setMsg('');setNoteText(item&&item.notes||'');setEditingNote(false);setShowEditPos(false);}, [item&&item.ticker]);
   if(!item){return emSt('ti-chart-candle','Click any row to view detail');}
   var lp=livePrices&&livePrices[item.ticker]&&!livePrices[item.ticker].error?livePrices[item.ticker]:null;
   var dp=lp?lp.price:item.price;
@@ -646,7 +693,43 @@ function DetailPanel(props){
       h('div',{style:{fontSize:10,color:C.muted,textTransform:'uppercase',letterSpacing:'0.1em',marginTop:8,marginBottom:5}},'Risk factors'),
       item.risks.map(function(r){return h('div',{key:r,style:{display:'flex',gap:6,padding:'3px 0',fontSize:11,color:C.muted2}},h('span',{style:{color:C.red,fontWeight:700}},'v'),r);})
     ):null,
-    Btn('btn-gold btn-full',{marginTop:12},function(){window.open('https://finance.yahoo.com/quote/'+item.ticker+'/','_blank');},false,h(Fragment,null,h('i',{className:'ti ti-brand-yahoo'}),' View on Yahoo Finance ->'))
+    /* ── Edit Position (shares, avg cost, sector) ── */
+  item.type!=='watchlist'?h('div',{style:{marginTop:12}},
+    h('button',{className:'btn btn-d',style:{width:'100%',fontSize:11,marginBottom:showEditPos?6:0},
+      onClick:function(){
+        setShowEditPos(!showEditPos);
+        setEditShares(String(item.shares||''));
+        setEditCost(String(item.avgCost||''));
+      }},
+      h('i',{className:'ti ti-edit'}),showEditPos?' Cancel Edit':' Edit Position (Shares / Cost)'
+    ),
+    showEditPos?h('div',{style:{background:'var(--surf2)',border:'1px solid var(--brd)',borderRadius:6,padding:'10px 12px'}},
+      h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}},
+        h('div',null,
+          h('div',{style:{fontSize:10,color:'var(--muted)',marginBottom:3}},'Shares'),
+          h('input',{type:'text',className:'finp',autoComplete:'off',
+            value:editShares,onChange:function(e){setEditShares(e.target.value);}})
+        ),
+        h('div',null,
+          h('div',{style:{fontSize:10,color:'var(--muted)',marginBottom:3}},'Avg Cost ($)'),
+          h('input',{type:'text',className:'finp',autoComplete:'off',
+            value:editCost,onChange:function(e){setEditCost(e.target.value);}})
+        )
+      ),
+      h('button',{className:'btn btn-p',style:{width:'100%',fontSize:11},
+        onClick:function(){
+          var sh=parseFloat(editShares);
+          var co=parseFloat(editCost);
+          if(isNaN(sh)||sh<=0){alert('Enter valid share count.');return;}
+          if(isNaN(co)||co<0){alert('Enter valid cost basis.');return;}
+          onEditPosition(item.id,{shares:sh,avgCost:co});
+          setShowEditPos(false);
+        }},
+        h('i',{className:'ti ti-check'}),' Save Changes'
+      )
+    ):null
+  ):null,
+  Btn('btn-gold btn-full',{marginTop:12},function(){window.open('https://finance.yahoo.com/quote/'+item.ticker+'/','_blank');},false,h(Fragment,null,h('i',{className:'ti ti-brand-yahoo'}),' View on Yahoo Finance ->'))
   );
 }
 
@@ -667,22 +750,93 @@ var FAST_STOCKS=[
       {ticker:'IDEX',name:'Ideanomics Inc',price:0.42,score:22,rec:'SELL',sector:'EV Fleet',cat:'Micro Cap',drivers:['EV fleet financing','China JV assets'],risks:['Chronic dilution','Poor execution history','Penny stock risk']},
 ];
 
+/* -- Yahoo Finance ticker normalizer -- */
+/* Yahoo uses - instead of . for class shares, and has some special cases */
+function normalizeYahooTicker(t){
+  if(!t)return t;
+  var sym=t.toUpperCase().trim();
+  /* Common remapping */
+  var MAP={
+    'BRK.B':'BRK-B','BRK.A':'BRK-A',
+    'BF.B':'BF-B','BF.A':'BF-A',
+    'GOOGL':'GOOGL','GOOG':'GOOG',
+    'BRKB':'BRK-B','BRKA':'BRK-A',
+  };
+  if(MAP[sym])return MAP[sym];
+  /* General rule: dots to dashes for share classes (e.g. JPM.PD -> JPM-PD) */
+  return sym.replace(/\./g,'-');
+}
+
+/* -- Safe live price extractor -- */
+/* livePrices can store plain numbers OR objects {price,change,pct}
+   depending on which fetch path populated it. Always use this. */
+function safeLP(lp){
+  if(lp===null||lp===undefined)return null;
+  if(typeof lp==='number')return isNaN(lp)?null:lp;
+  if(typeof lp==='object'){
+    var p=lp.price||lp.close||lp.regularMarketPrice||lp.last||null;
+    return (p&&!isNaN(+p))?+p:null;
+  }
+  var n=+lp;
+  return isNaN(n)?null:n;
+}
+
 /* -- CORS-safe fetch helper -- */
 /* When loaded from file://, direct Yahoo Finance calls are blocked by some browsers.
    This helper tries the direct URL first; if CORS blocks it, retries via a public proxy. */
 function corsFetch(url){
+  /* Try direct first -- works if served from http:// or if API allows all origins */
   return fetch(url,{cache:'no-store'}).then(function(r){
     if(!r.ok)throw new Error('HTTP '+r.status);
     return r.json();
-  }).catch(function(e){
-    /* CORS error or network error -- try via allorigins proxy */
-    var proxyUrl='https://api.allorigins.win/get?url='+encodeURIComponent(url);
-    return fetch(proxyUrl,{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
-      /* allorigins wraps the response in {contents: "..."} */
-      if(d&&d.contents)return JSON.parse(d.contents);
-      throw new Error('Proxy returned no content');
+  }).catch(function(){
+    /* Fallback 1: corsproxy.io -- no rate limit, reliable */
+    var p1='https://corsproxy.io/?'+encodeURIComponent(url);
+    return fetch(p1,{cache:'no-store'}).then(function(r){
+      if(!r.ok)throw new Error('proxy1 HTTP '+r.status);
+      return r.json();
+    });
+  }).catch(function(){
+    /* Fallback 2: allorigins.win */
+    var p2='https://api.allorigins.win/get?url='+encodeURIComponent(url);
+    return fetch(p2,{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.contents){
+        try{return JSON.parse(d.contents);}catch(e){throw new Error('allorigins parse error');}
+      }
+      throw new Error('allorigins no content');
+    });
+  }).catch(function(){
+    /* Fallback 3: thingproxy */
+    var p3='https://thingproxy.freeboard.io/fetch/'+url;
+    return fetch(p3,{cache:'no-store'}).then(function(r){
+      if(!r.ok)throw new Error('thingproxy HTTP '+r.status);
+      return r.json();
     });
   });
+}
+
+/* -- CSV Export Utility -- */
+function toCSV(rows, headers){
+  var lines=[headers.join(',')];
+  rows.forEach(function(row){
+    lines.push(headers.map(function(h){
+      var v=row[h]===undefined?'':row[h];
+      var s=String(v).replace(/"/g,'""');
+      return s.indexOf(',')>=0||s.indexOf('"')>=0||s.indexOf('\n')>=0?'"'+s+'"':s;
+    }).join(','));
+  });
+  return lines.join('\n');
+}
+function downloadCSV(csv, filename){
+  var blob=new Blob([csv],{type:'text/csv'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download=filename;a.click();
+  setTimeout(function(){URL.revokeObjectURL(url);},1000);
+}
+function ExportBtn(props){
+  return h('button',{className:'btn btn-d print-hide',style:{fontSize:10},
+    onClick:props.onClick},h('i',{className:'ti ti-file-download'}),' '+( props.label||'Export CSV'));
 }
 
 /* -- App component -- */
@@ -699,6 +853,8 @@ function App(){
   var s8=useState({done:0,total:0}),fetchProg=s8[0],setFetchProg=s8[1];
   var s9=useState(function(){return lsGet('apex_pkeys',{});}),keys=s9[0],setKeys=s9[1];
   var s10=useState(function(){return lsGet('apex_ai','gemini');}),activeAI=s10[0],setActiveAI=s10[1];
+  var s10g=useState(function(){return lsGet('apex_ai_goals','');}),aiGoals=s10g[0],setAiGoals=s10g[1];
+  function saveAiGoals(v){setAiGoals(v);lsSet('apex_ai_goals',v);}
   var s11=useState(function(){var savedPP=lsGet('apex_pp','yahoo');return savedPP;}),activePP=s11[0],setActivePP=s11[1];
   var s12=useState(false),addingPos=s12[0],setAddingPos=s12[1];
   var s13=useState(false),addingWatch=s13[0],setAddingWatch=s13[1];
@@ -716,6 +872,33 @@ function App(){
     var stheme=useState(function(){var saved=localStorage.getItem('apex_theme')||'dark';if(typeof document!=='undefined')applyTheme(saved);return saved;}),appTheme=stheme[0],setAppTheme=stheme[1];
     function changeTheme(t){applyTheme(t);setAppTheme(t);localStorage.setItem('apex_theme',t);}
 
+    /* ── Browser Push Notifications ── */
+    var snotif=useState(function(){
+      try{return window.Notification&&Notification.permission==='granted';}catch(e){return false;}
+    }),notifEnabled=snotif[0],setNotifEnabled=snotif[1];
+
+    function requestNotifPermission(){
+      if(!window.Notification){alert('Browser notifications not supported.');return;}
+      Notification.requestPermission().then(function(perm){
+        setNotifEnabled(perm==='granted');
+        if(perm==='granted')alert('Notifications enabled! You will get alerts when your triggers fire, even in the background.');
+        else if(perm==='denied')alert('Notifications blocked. Allow them in your browser settings for this page.');
+      });
+    }
+
+    function sendNotification(title, body){
+      if(!notifEnabled||!window.Notification||Notification.permission!=='granted')return;
+      try{
+        var n=new Notification(title,{
+          body:body,
+          icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="%23F5C842"/><text x="16" y="22" text-anchor="middle" font-size="18" font-family="monospace" fill="%23000">A</text></svg>',
+          tag:'apex-alert',requireInteraction:true
+        });
+        n.onclick=function(){window.focus();n.close();};
+        setTimeout(function(){n.close();},10000);
+      }catch(e){}
+    }
+
     /* ── Fast Money lifted state (survives App re-renders) ── */
     var sfmf=useState('all'),fmFilter=sfmf[0],setFmFilter=sfmf[1];
     var sfmp=useState({}),fmPricesApp=sfmp[0],setFmPricesApp=sfmp[1];
@@ -727,7 +910,7 @@ function App(){
       setFmStatusApp('Fetching live prices...');
       var tickers=FAST_STOCKS.map(function(s){return s.ticker;});
       var promises=tickers.map(function(ticker){
-        return corsFetch('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(ticker)+'?interval=1d&range=1d')
+        return corsFetch('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(normalizeYahooTicker(ticker))+'?interval=1d&range=1d')
           .then(function(r){return r.json();})
           .then(function(d){
             var q=d&&d.chart&&d.chart.result&&d.chart.result[0];
@@ -837,6 +1020,20 @@ function App(){
       function handleKey(e){
         /* Skip if typing in an input */
         if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT')return;
+        /* Arrow key tab navigation */
+        if(e.key==='ArrowRight'||e.key==='ArrowLeft'){
+          var dir=e.key==='ArrowRight'?1:-1;
+          var curG=null;var curTIdx=-1;
+          NAV_GROUPS.forEach(function(g){var idx=g.tabs.indexOf(tab);if(idx>=0){curG=g;curTIdx=idx;}});
+          if(curG&&curTIdx>=0){setTab(curG.tabs[(curTIdx+dir+curG.tabs.length)%curG.tabs.length]);e.preventDefault();}
+          return;
+        }
+        if(e.key==='ArrowUp'||e.key==='ArrowDown'){
+          var dir2=e.key==='ArrowDown'?1:-1;
+          var curGIdx=NAV_GROUPS.findIndex(function(g){return g.tabs.indexOf(tab)>=0;});
+          if(curGIdx>=0){var ng=NAV_GROUPS[(curGIdx+dir2+NAV_GROUPS.length)%NAV_GROUPS.length];setTab(ng.tabs[0]);e.preventDefault();}
+          return;
+        }
         var key=e.key.toUpperCase();
         if(key==='ESCAPE'){setDetail(null);setShowKeys(false);kbBuffer.current='';return;}
         if(key==='?'){setShowKeys(function(v){return !v;});return;}
@@ -901,7 +1098,16 @@ function App(){
   function getLive(t){var lp=livePrices[t];return (lp&&!lp.error&&lp.price>0)?lp:null;}
   var totalPnl=positions.reduce(function(s,p){return s+(getPrice(p)-p.avgCost)*p.shares;},0);
   var hasPK=PRICE_PROVS.some(function(p){return keys[p.id];});
-  var hasAK=AI_PROVS.some(function(p){return keys[p.id];});
+  /* hasAK: active AI provider has a key AND is not CORS-blocked */
+  var hasAK=(function(){
+    var activeKey=keys[activeAI];
+    if(!activeKey)return false;
+    /* Claude is blocked from browsers -- treat as no key */
+    if(activeAI==='claude')return false;
+    return true;
+  })();
+  /* hasAnyAK: any non-blocked provider has a key (for Settings badge) */
+  var hasAnyAK=AI_PROVS.filter(function(p){return p.corsOk!==false;}).some(function(p){return keys[p.id];});
   var amort=calcAmort(calcP,calcR,calcY,calcE);
   /* All tickers mentioned anywhere in the app */
   var APP_WIDE_TICKERS=[
@@ -959,7 +1165,16 @@ function App(){
         });
       }
     });
-    if(fired.length > 0) setFiredAlerts(function(prev){ return prev.concat(fired); });
+    if(fired.length > 0){
+      setFiredAlerts(function(prev){ return prev.concat(fired); });
+      /* Send browser push notification for each fired alert */
+      fired.forEach(function(f){
+        sendNotification(
+          'Apex Alert: ' + f.ticker + ' Triggered',
+          f.label + (f.note ? ' -- ' + f.note : '') + ' at ' + f.firedAt
+        );
+      });
+    }
   }
   var liveCount=Object.values(livePrices).filter(function(v){return v&&!v.error&&v.price>0;}).length;
 
@@ -1008,8 +1223,26 @@ function App(){
     var stop=parseFloat((f.stop&&f.stop.value)||0)||(price*0.9);
     var score=Math.min(100,Math.max(0,parseInt((f.score&&f.score.value)||65)));
     var target=parseFloat((f.target&&f.target.value)||0)||(price*1.2);
-    var np={id:nid(),ticker:ticker,name:(f.name&&f.name.value)||ticker,type:posType,shares:shares,avgCost:avgCost,price:price,score:score,rec:(f.rec&&f.rec.value)||'ACCUMULATE',entry:[+(price*0.97).toFixed(2),+(price*1.02).toFixed(2)],target:target,stop:stop,polScore:40,instScore:55,legScore:50,techScore:55,newsScore:55,macroScore:55,conf:score/100,drivers:[],risks:[]};
+    var np={id:nid(),ticker:ticker,name:(f.name&&f.name.value)||ticker,type:posType,account:(f.acct&&f.acct.value)||'',shares:shares,avgCost:avgCost,price:price,score:score,rec:(f.rec&&f.rec.value)||'ACCUMULATE',entry:[+(price*0.97).toFixed(2),+(price*1.02).toFixed(2)],target:target,stop:stop,polScore:40,instScore:55,legScore:50,techScore:55,newsScore:55,macroScore:55,conf:score/100,drivers:[],risks:[]};
     if(posType==='mutual'){np.expenseRatio=parseFloat((f.er&&f.er.value)||0);np.category=(f.cat&&f.cat.value)||'';np.aum=(f.aum&&f.aum.value)||'';}
+    if(positions.length>=200){
+      alert('You have '+positions.length+' positions. Consider archiving closed positions in the Tax Lots tab.');
+    }
+    /* Duplicate detection */
+    var existingIdx=positions.findIndex(function(p){return p.ticker===np.ticker&&p.type===np.type;});
+    if(existingIdx>=0){
+      var existing=positions[existingIdx];
+      if(!confirm('You already have '+np.ticker+' ('+existing.shares+' shares @ $'+(+(existing.avgCost||0)).toFixed(2)+'). Add another lot? (Cancel to update the existing position instead)')){
+        /* Update existing with blended avg cost */
+        var totalShares=existing.shares+np.shares;
+        var blendedCost=(existing.avgCost*existing.shares+np.avgCost*np.shares)/totalShares;
+        var merged=Object.assign({},existing,{shares:totalShares,avgCost:parseFloat(blendedCost.toFixed(4))});
+        updPos(positions.map(function(p){return p.id===existing.id?merged:p;}));
+        setAddingPos(false);
+        Object.values(pf.current).forEach(function(el){if(el&&el.value!==undefined)el.value='';});
+        return;
+      }
+    }
     updPos(positions.concat([np]));setAddingPos(false);
     Object.values(pf.current).forEach(function(el){if(el&&el.value!==undefined){el.value='';}});
   }
@@ -1123,7 +1356,13 @@ function App(){
       h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}},
         FG('Recommendation',Sel({ref:function(el){if(el){pf.current.rec=el;}}},h('option',{value:'BUY'},'Buy'),h('option',{value:'ACCUMULATE'},'Accumulate'),h('option',{value:'HOLD'},'Hold'),h('option',{value:'TRIM'},'Trim'),h('option',{value:'SELL'},'Sell'))),
         FG('Score (0-100)',Inp({ref:function(el){if(el){pf.current.score=el;}},type:'number',placeholder:'65',min:'0',max:'100'})),
-        FG('Target price ($)',Inp({ref:function(el){if(el){pf.current.target=el;}},type:'number',step:'0.01',placeholder:'0.00'}))
+        FG('Target price ($)',Inp({ref:function(el){if(el){pf.current.target=el;}},type:'number',step:'0.01',placeholder:'0.00'})),
+        FG('Account',h('select',{ref:function(el){if(el){pf.current.acct=el;}},className:'finp'},
+          h('option',{value:''},'Unassigned'),h('option',{value:'taxable'},'Taxable'),
+          h('option',{value:'roth_ira'},'Roth IRA'),h('option',{value:'trad_ira'},'Trad IRA'),
+          h('option',{value:'401k'},'401k'),h('option',{value:'roth_401k'},'Roth 401k'),
+          h('option',{value:'hsa'},'HSA'),h('option',{value:'other'},'Other')
+        ))
       ),
       h('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
         Btn('btn-d',{},function(){setAddingPos(false);},false,'Cancel'),
@@ -2229,21 +2468,74 @@ function App(){
         ),
         (function(){
           var SAMPLE_DIVS2={
+            /* Defense/Industrials */
             'LMT': {annual:12.60,freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
             'RTX':  {annual:2.52, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'NOC':  {annual:7.68, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'GD':   {annual:5.60, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            'BA':   {annual:0,    freq:'N/A',      months:[],exMonth:[]},
+            'CAT':  {annual:5.20, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            'HON':  {annual:4.36, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'MMM':  {annual:5.96, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'GE':   {annual:0.32, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            /* Tech */
             'AAPL': {annual:1.00, freq:'Quarterly',months:[2,5,8,11],exMonth:[2,5,8,11]},
             'MSFT': {annual:3.32, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'AVGO': {annual:21.00,freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'TXN':  {annual:6.44, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            'INTC': {annual:0.50, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'IBM':  {annual:6.68, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'CSCO': {annual:1.60, freq:'Quarterly',months:[1,4,7,10],exMonth:[1,4,7,10]},
+            'QCOM': {annual:3.40, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            /* Healthcare/Pharma */
             'ABBV': {annual:6.56, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
             'JNJ':  {annual:4.96, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
-            'O':    {annual:3.12, freq:'Monthly',  months:[1,2,3,4,5,6,7,8,9,10,11,12],exMonth:[1,2,3,4,5,6,7,8,9,10,11,12]},
+            'MRK':  {annual:2.96, freq:'Quarterly',months:[1,4,7,10],exMonth:[12,3,6,9]},
+            'PFE':  {annual:1.68, freq:'Quarterly',months:[3,6,9,12],exMonth:[1,4,7,10]},
+            'BMY':  {annual:2.40, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            'AMGN': {annual:9.00, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'MDT':  {annual:2.48, freq:'Quarterly',months:[1,4,7,10],exMonth:[12,3,6,9]},
+            /* Financials */
+            'JPM':  {annual:4.60, freq:'Quarterly',months:[1,4,7,10],exMonth:[1,4,7,10]},
+            'BAC':  {annual:1.00, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'WFC':  {annual:1.40, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'GS':   {annual:11.00,freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'MS':   {annual:3.70, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            'V':    {annual:2.28, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'MA':   {annual:2.64, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            'AXP':  {annual:2.80, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            'BLK':  {annual:20.40,freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'SCHW': {annual:1.28, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            'C':    {annual:2.12, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            /* Consumer */
             'KO':   {annual:1.94, freq:'Quarterly',months:[1,4,7,10],exMonth:[12,3,6,9]},
             'PG':   {annual:3.76, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            'PEP':  {annual:5.06, freq:'Quarterly',months:[1,4,6,9], exMonth:[12,3,5,8]},
+            'MCD':  {annual:6.96, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'WMT':  {annual:2.28, freq:'Quarterly',months:[1,4,7,10],exMonth:[12,3,6,9]},
+            'COST': {annual:4.64, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            'HD':   {annual:9.00, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'TGT':  {annual:4.48, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'PM':   {annual:5.40, freq:'Quarterly',months:[1,4,7,10],exMonth:[12,3,6,9]},
+            'MO':   {annual:3.96, freq:'Quarterly',months:[1,4,7,10],exMonth:[12,3,6,9]},
+            /* Telecom/Utilities */
             'VZ':   {annual:2.66, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
             'T':    {annual:1.11, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
-            'XOM':  {annual:3.80, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
             'NEE':  {annual:2.06, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
-            'NOC':  {annual:7.68, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
-            'JPM':  {annual:4.60, freq:'Quarterly',months:[1,4,7,10],exMonth:[1,4,7,10]},
+            'SO':   {annual:2.88, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'DUK':  {annual:4.24, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            /* Energy */
+            'XOM':  {annual:3.80, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'CVX':  {annual:6.52, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'COP':  {annual:1.72, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'OXY':  {annual:0.88, freq:'Quarterly',months:[1,4,7,10],exMonth:[12,3,6,9]},
+            'SLB':  {annual:1.00, freq:'Quarterly',months:[1,4,7,10],exMonth:[12,3,6,9]},
+            /* REITs */
+            'O':    {annual:3.12, freq:'Monthly',  months:[1,2,3,4,5,6,7,8,9,10,11,12],exMonth:[1,2,3,4,5,6,7,8,9,10,11,12]},
+            'AMT':  {annual:6.48, freq:'Quarterly',months:[2,5,8,11],exMonth:[1,4,7,10]},
+            'PLD':  {annual:3.92, freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'EQIX': {annual:17.04,freq:'Quarterly',months:[3,6,9,12],exMonth:[2,5,8,11]},
+            'VNQ':  {annual:3.60, freq:'Quarterly',months:[1,4,7,10],exMonth:[12,3,6,9]},
           };
           /* Build 12-month calendar from current positions */
           var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -2264,7 +2556,7 @@ function App(){
           var maxMonth=Math.max.apply(null,monthlyIncome.map(function(m){return m.amount;}));
           if(!hasAnyDiv)return h('div',{style:{textAlign:'center',padding:16,color:C.muted}},
             h('i',{className:'ti ti-calendar-event',style:{fontSize:24,display:'block',marginBottom:6}}),
-            'No dividend-paying positions found. Add dividend stocks (LMT, AAPL, KO, JNJ etc.) to see your income calendar.');
+            'No dividend data found for your current positions. The calendar covers 60+ stocks including AAPL, MSFT, LMT, JPM, KO, XOM, ABBV, VZ, O, and more. Add these to your positions to see projected income. Stocks with no dividends (NVDA, PLTR, TSLA, META, AMZN) will not appear.');
 
           return h('div',null,
             /* Annual summary */
@@ -2940,7 +3232,7 @@ function App(){
 
     /* Load from portfolio quick-fill */
     function loadPos(p){
-      setUnderlying(String(p.price.toFixed(2)));
+      setUnderlying(String((+(p.price||0)).toFixed(2)));
       setStrike(String(Math.round(p.price/5)*5));
       setDte('30');
       setResult(null);
@@ -3004,7 +3296,7 @@ function App(){
           h('span',{style:{fontSize:10,color:C.muted,alignSelf:'center'}},'Load from portfolio:'),
           positions.filter(function(p){return p.price>0;}).slice(0,8).map(function(p){
             return h('button',{key:p.ticker,style:{fontSize:10,background:C.surf2,color:C.purple,border:'1px solid '+C.purple+'35',padding:'2px 8px',borderRadius:3,cursor:'pointer',fontFamily:'inherit'},
-              onClick:function(){loadPos(p);}},p.ticker+' $'+p.price.toFixed(0));
+              onClick:function(){loadPos(p);}},p.ticker+' $'+(+(p.price||0)).toFixed(0));
           })
         ):null,
         h('button',{className:'btn btn-p btn-full',onClick:calculate,disabled:!underlying||!strike||!dte||!ivPct},
@@ -3019,8 +3311,8 @@ function App(){
               h('div',{style:{fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:2}},
                 result.optType.toUpperCase()+' OPTION -- '+result.q+' contract'+(result.q>1?'s':'')),
               h('div',{style:{display:'flex',alignItems:'baseline',gap:10}},
-                h('div',{style:{fontFamily:C.mono,fontSize:28,fontWeight:700,color:C.purple}},'$'+result.price.toFixed(4),' /share'),
-                h('div',{style:{fontFamily:C.mono,fontSize:16,color:C.textB}},'$'+result.price.toFixed(2)+' x 100 x '+result.q+' = '),
+                h('div',{style:{fontFamily:C.mono,fontSize:28,fontWeight:700,color:C.purple}},'$'+(+(result.price||0)).toFixed(4),' /share'),
+                h('div',{style:{fontFamily:C.mono,fontSize:16,color:C.textB}},'$'+(+(result.price||0)).toFixed(2)+' x 100 x '+result.q+' = '),
                 h('div',{style:{fontFamily:C.mono,fontSize:20,fontWeight:700,color:result.optType==='call'?C.green:C.red}},'$'+result.totalCost.toFixed(0)+' total')
               )
             ),
@@ -3448,6 +3740,45 @@ function App(){
   function TabHeatmap(){
     var sv=useState('1d'),period=sv[0],setPeriod=sv[1];
     var sf=useState('All'),sectorFilter=sf[0],setSectorFilter=sf[1];
+    var slr=useState({}),liveReturns=slr[0],setLiveReturns=slr[1];
+    var sfh=useState(false),fetchingHeat=sfh[0],setFetchingHeat=sfh[1];
+    var sfm=useState(''),heatMsg=sfm[0],setHeatMsg=sfm[1];
+
+    /* Pull live 1-day returns from Yahoo Finance for top S&P 500 stocks */
+    function fetchLiveHeatmap(){
+      setFetchingHeat(true);setHeatMsg('Fetching sector data...');
+      /* First use any prices already in livePrices */
+      var instant={};
+      STOCKS.forEach(function(s){
+        var lp=livePrices[s.t];
+        if(lp&&typeof lp==='object'&&lp.changePct!=null){
+          instant[s.t]=lp.changePct;
+        } else if(lp&&typeof lp==='object'&&lp.change!=null&&lp.price>0){
+          instant[s.t]=(lp.change/lp.price)*100;
+        }
+      });
+      setLiveReturns(instant);
+      /* Fetch a batch of key sector ETFs for broader picture */
+      var ETF_BATCH=['XLK','XLF','XLV','XLE','XLI','XLY','XLP','XLRE','XLU','XLB','XLC'];
+      var done=0;var etfResults={};
+      ETF_BATCH.forEach(function(etf){
+        var url='https://query1.finance.yahoo.com/v8/finance/chart/'+etf+'?interval=1d&range=1d';
+        corsFetch(url).then(function(data){
+          var meta=data&&data.chart&&data.chart.result&&data.chart.result[0]&&data.chart.result[0].meta;
+          if(meta&&meta.regularMarketPrice&&meta.chartPreviousClose){
+            var pct=(meta.regularMarketPrice-meta.chartPreviousClose)/meta.chartPreviousClose*100;
+            etfResults[etf]=parseFloat(pct.toFixed(2));
+          }
+        }).catch(function(){}).finally(function(){
+          done++;
+          if(done===ETF_BATCH.length){
+            setLiveReturns(function(prev){return Object.assign({},prev,etfResults);});
+            setFetchingHeat(false);
+            setHeatMsg('Updated '+Object.keys(etfResults).length+' sector ETFs + '+ Object.keys(instant).length+' portfolio stocks');
+          }
+        });
+      });
+    }
 
     /* Top 100 S&P 500 stocks with sector, market cap, and returns */
     var STOCKS=[
@@ -3532,7 +3863,13 @@ function App(){
 
     var periodKey = period==='1d'?'r1d':period==='1w'?'r1w':period==='1m'?'r1m':'r3m';
 
-    var filtered = sectorFilter==='All'?STOCKS:STOCKS.filter(function(s){return s.s===sectorFilter;});
+    var filtered = sectorFilter==='All'?STOCKS:STOCKS.filter(function(s){return s.s===sectorFilter;}).map(function(s){
+      /* Override seed returns with live data where available */
+      if(liveReturns[s.t]!=null){
+        return Object.assign({},s,{r1d:parseFloat(liveReturns[s.t].toFixed(2))});
+      }
+      return s;
+    });
 
     /* Sort by market cap for layout */
     var sorted = filtered.slice().sort(function(a,b){return b.mc-a.mc;});
@@ -3582,8 +3919,17 @@ function App(){
           ),
           h('div',null,
             h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'S&P 500 Market Heatmap'),
-            h('div',{style:{fontSize:11,color:C.muted}},h(SeedBadge,null),' Box size = market cap. Color = performance. '+sorted.length+' stocks. Seed data May 2026.')
-          )
+            h('div',{style:{fontSize:11,color:C.muted}},
+              h(SeedBadge,null),' Box size = market cap. Color = performance. '+sorted.length+' stocks.',
+              Object.keys(liveReturns).length>0?h('span',{style:{color:C.teal,marginLeft:4}},Object.keys(liveReturns).length+' live'):
+              h('span',{style:{color:C.muted2,marginLeft:4}},'Seed data -- click Refresh')
+            ),
+            heatMsg?h('div',{style:{fontSize:10,color:fetchingHeat?C.warn:C.teal,marginTop:2}},heatMsg):null
+          ),
+          h('button',{className:'btn btn-d',style:{fontSize:10,marginLeft:'auto'},
+            onClick:fetchLiveHeatmap,disabled:fetchingHeat},
+            fetchingHeat?h('span',{className:'sp'}):h('i',{className:'ti ti-refresh'}),
+            ' Refresh Live')
         ),
         /* Period selector */
         h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}},
@@ -3729,6 +4075,7 @@ function App(){
     var sal=useState(false),aiLoad=sal[0],setAiLoad=sal[1];
     var sam=useState(''),aiMsg=sam[0],setAiMsg=sam[1];
     var sar=useState(null),aiResult=sar[0],setAiResult=sar[1];
+    var spo=useState(''),phaseOverride=spo[0],setPhaseOverride=spo[1];
 
     /* Market cycle phases and sector performance by phase */
     var PHASES=[
@@ -3769,8 +4116,24 @@ function App(){
     };
 
     /* Current phase assessment */
-    var CURRENT_PHASE='late_exp';
-    var PHASE_CONFIDENCE=68; /* % confidence in current phase */
+    var CURRENT_PHASE=(function(){
+      /* Auto-infer from live market signals */
+      var vix=safeLP(livePrices['%5EVIX']);
+      var techMom=0,defMom=0,cnt=0;
+      positions.forEach(function(p){
+        var lp=safeLP(livePrices[p.ticker]);
+        if(!lp||!p.avgCost)return;
+        var ret=(lp-p.avgCost)/p.avgCost;
+        if(['NVDA','AMD','META','MSFT','AAPL','AMZN','TSLA'].indexOf(p.ticker)>=0){techMom+=ret;cnt++;}
+        if(['LMT','RTX','NOC','GD','JNJ','KO','PG','WMT'].indexOf(p.ticker)>=0){defMom+=ret;cnt++;}
+      });
+      if(phaseOverride)return phaseOverride;
+      if(vix&&vix>28)return 'recession';
+      if(vix&&vix<14&&techMom>defMom)return 'mid_exp';
+      if(defMom>techMom&&defMom>0.05)return 'late_exp';
+      return 'late_exp'; /* Default: current macro context mid-2025 */
+    })();
+    var PHASE_CONFIDENCE=phaseOverride?95:72;
     var currentPhase=PHASES.find(function(p){return p.id===CURRENT_PHASE;});
 
     /* Sector ETF data with current and historical phase performance */
@@ -3848,7 +4211,17 @@ function App(){
           ),
           h('div',{style:{flex:1}},
             h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:4}},
-              h('div',{style:{fontSize:16,fontWeight:700,color:currentPhase.color}},'CURRENT PHASE: '+currentPhase.label.toUpperCase()),
+              h('div',{style:{fontSize:16,fontWeight:700,color:currentPhase.color}},(phaseOverride?'[MANUAL] ':'[AUTO] ')+'CURRENT PHASE: '+currentPhase.label.toUpperCase()),
+              h('select',{
+                style:{fontSize:10,background:'rgba(0,0,0,0.2)',border:'1px solid rgba(255,255,255,0.2)',color:'#fff',borderRadius:4,padding:'2px 6px',cursor:'pointer',fontFamily:'inherit'},
+                value:phaseOverride,
+                onChange:function(e){setPhaseOverride(e.target.value);}},
+                h('option',{value:''},'Auto-detect'),
+                h('option',{value:'early_exp'},'Early Expansion'),
+                h('option',{value:'mid_exp'},'Mid Expansion'),
+                h('option',{value:'late_exp'},'Late Expansion'),
+                h('option',{value:'recession'},'Recession')
+              ),
               h('div',{style:{fontSize:11,background:currentPhase.color+'25',color:currentPhase.color,border:'1px solid '+currentPhase.color+'40',padding:'2px 10px',borderRadius:4,fontWeight:700}},PHASE_CONFIDENCE+'% confidence')
             ),
             h('div',{style:{fontSize:11,color:C.muted2,marginBottom:6}},currentPhase.desc),
@@ -4430,10 +4803,14 @@ function App(){
     var SCR_TICKERS=['NVDA','LMT','MSFT','META','AAPL','AMZN','RTX','PLTR','GE','COIN',
                     'GOOGL','TSLA','AMD','INTC','V','JPM','UNH','XOM','NEE','ABBV'];
     function fetchLiveScreener(){
-      setFetchingScr(true);setScrMsg('Fetching live data for '+SCR_TICKERS.length+' stocks...');setLiveScr([]);
-      var promises=SCR_TICKERS.map(function(ticker){
-        var url='https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?interval=1d&range=1d';
-        return fetch(url,{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      /* Include user's positions in the scan */
+      var extraTickers=positions.map(function(p){return p.ticker;})
+        .filter(function(t){return SCR_TICKERS.indexOf(t)<0;});
+      var ALL_TICKERS=SCR_TICKERS.concat(extraTickers).slice(0,40);
+      setFetchingScr(true);setScrMsg('Fetching live data for '+ALL_TICKERS.length+' stocks...');setLiveScr([]);
+      var promises=ALL_TICKERS.map(function(ticker){
+        var url='https://query1.finance.yahoo.com/v8/finance/chart/'+normalizeYahooTicker(ticker)+'?interval=1d&range=1d';
+        return corsFetch(url).then(function(d){
           var q=d&&d.chart&&d.chart.result&&d.chart.result[0];
           if(!q)return null;
           var m=q.meta;
@@ -4808,7 +5185,7 @@ function App(){
       var prompt='You are a trading coach and performance analyst.\n\nCLOSED TRADES (last 10):\n'+(summary||'No closed trades.')+'\n\nOPEN TRADES:\n'+(openSummary||'None.')+'\n\n'
         +'STATS: Win rate: '+winRate.toFixed(0)+'% | Avg win: +'+avgWin.toFixed(1)+'% | Avg loss: '+avgLoss.toFixed(1)+'% | Profit factor: '+profitFactor.toFixed(2)+'x | Best setup: '+(bestSetup||'N/A')+'\n\n'
         +'Plain text. EXACTLY:\n\nPERFORMANCE ASSESSMENT:\n[Overall trading quality. What the numbers reveal about skill vs luck.]\n\nPATTERN ANALYSIS:\n[What setup types are working best? Any behavioral patterns -- selling winners too early, holding losers too long?]\n\nOPEN TRADE REVIEW:\n[Assess each open trade. Are the stops appropriate? Are theses still valid?]\n\nKEY IMPROVEMENTS:\n[3 specific things to change that will most improve results.]\n\nCONGRESSIONAL ANGLE:\n[Are any trades aligned with or against congressional activity?]\n\nCOACHING VERDICT:\n[One honest paragraph: what kind of trader are you and what is the single most important thing to fix?]';
-      callAI(prompt,keys,activeAI,1200).then(function(text){
+      callAI(prompt,keys,activeAI,1200,aiGoals).then(function(text){
         if(!text)throw new Error('Empty');
         function gs(l,n){var m=text.match(new RegExp(l+'[:\\s]*([\\s\\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
         setAiResult({
@@ -4830,7 +5207,14 @@ function App(){
             h('i',{className:'ti ti-notebook',style:{fontSize:18,color:C.purple}})
           ),
           h('div',null,
-            h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'Trade Journal'),h(PrintButton,{label:'Trade Journal'}),
+            h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'Trade Journal'),
+            h(PrintButton,{label:'Trade Journal'}),
+            h(ExportBtn,{label:'Export Journal',onClick:function(){
+              var jn=lsGet('apex_journal_v1',[]);
+              if(!jn.length){alert('No journal entries.');return;}
+              var rows=jn.map(function(e){return {Date:e.date||'',Ticker:e.ticker||'',Action:e.action||'',Shares:e.shares||'',Price:e.price||'',PnL:e.pnl||'',Tags:(e.tags||[]).join(';'),Notes:e.notes||''};});
+              downloadCSV(toCSV(rows,['Date','Ticker','Action','Shares','Price','PnL','Tags','Notes']),'apex-journal-'+new Date().toISOString().slice(0,10)+'.csv');
+            }}),
             h('div',{style:{fontSize:11,color:C.muted}},'Log real trades with thesis, stops, and lessons. Track your edge and improve over time.')
           ),
           hasAK?h('div',{style:{marginLeft:'auto'}},aiBadge(activeAI)):null
@@ -5022,9 +5406,25 @@ function App(){
 
     function setTick(idx,val){setTickers(function(prev){var n=prev.slice();n[idx]=val.toUpperCase();return n;});}
     function addCol(){setTickers(function(p){return p.length<4?p.concat(['']):p;});}
+    /* Quick-add from portfolio or watchlist */
+    function addFromPortfolio(t){setTickers(function(p){if(p.indexOf(t)>=0)return p;return p.length<4?p.concat([t]):p;});}
     function removeCol(i){setTickers(function(p){return p.filter(function(_,idx){return idx!==i;});});}
 
-    var data=tickers.map(function(t){return t&&COMP_DATA[t]?{ticker:t,d:COMP_DATA[t]}:null;});
+    var data=tickers.map(function(t){
+      if(!t||!COMP_DATA[t])return null;
+      var d=Object.assign({},COMP_DATA[t]);
+      /* Overlay live price if available */
+      var lp=safeLP(livePrices[t]);
+      if(lp&&lp>0){
+        d.price=lp;
+        /* Recompute P/E if we have earnings estimate */
+        if(d.epsEst&&d.epsEst>0)d.fpe=parseFloat((lp/d.epsEst).toFixed(1));
+      }
+      /* Flag if user holds this stock */
+      d.inPortfolio=positions.some(function(p){return p.ticker===t;});
+      d.inWatchlist=watchlist.some(function(w){return w.ticker===t;});
+      return {ticker:t,d:d};
+    });
     var valid=data.filter(Boolean);
 
     function winner(key,higherBetter){
@@ -5035,7 +5435,7 @@ function App(){
     }
 
     var ROWS=[
-      {key:'price',  label:'Price',          fmt:function(v){return '$'+v.toFixed(2);},          higher:null,   note:'Current market price'},
+      {key:'price',  label:'Price',          fmt:function(v,x){var lp=safeLP(livePrices[x&&x.ticker]);return '$'+(+(v||0)).toFixed(2)+(lp&&lp>0?'  LIVE':'');},  higher:null,   note:'Current price (LIVE = from your last refresh)'},
       {key:'mktcap', label:'Market Cap',     fmt:function(v){return v;},                           higher:null,   note:'Total market capitalization'},
       {key:'pe',     label:'P/E Ratio',      fmt:function(v){return v+'x';},                       higher:false,  note:'Price / Trailing Earnings'},
       {key:'fpe',    label:'Fwd P/E',        fmt:function(v){return v+'x';},                       higher:false,  note:'Price / Forward 12-mo Earnings'},
@@ -5104,6 +5504,11 @@ function App(){
             );
           }),
           tickers.length<4?h('button',{className:'btn btn-d',style:{fontSize:10},onClick:addCol},h('i',{className:'ti ti-plus'}),' Add'):null,
+          positions.length>0?h('select',{className:'finp',style:{width:130,fontSize:10},
+            defaultValue:'',
+            onChange:function(e){if(e.target.value){addFromPortfolio(e.target.value);e.target.value='';}},},
+            h('option',{value:''},'Add from portfolio'),
+            positions.map(function(p){return h('option',{key:p.id,value:p.ticker},p.ticker);})):null,
           valid.length>=2?h('button',{className:'btn btn-p',style:{fontSize:10,marginLeft:'auto'},onClick:getCompareAI,disabled:aiLoad},
             aiLoad?h('span',{className:'sp'}):h('i',{className:'ti ti-brain'}),aiLoad?' Comparing...':' AI Pick Winner'):null
         ),
@@ -5486,7 +5891,14 @@ function App(){
             h('i',{className:'ti ti-scale',style:{fontSize:18,color:C.teal}})
           ),
           h('div',null,
-            h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'Net Worth Tracker'),h(PrintButton,{label:'Net Worth Report'}),
+            h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'Net Worth Tracker'),
+          h(PrintButton,{label:'Net Worth Report'}),
+          h(ExportBtn,{label:'Export Net Worth',onClick:function(){
+            var nw=lsGet('apex_networth_v1',[]);
+            if(!nw.length){alert('No net worth history.');return;}
+            var rows=nw.map(function(e){return {Date:e.date||'',Assets:e.assets||'',Liabilities:e.liabilities||'','Net Worth':e.netWorth||'',Notes:e.notes||''};});
+            downloadCSV(toCSV(rows,['Date','Assets','Liabilities','Net Worth','Notes']),'apex-networth-'+new Date().toISOString().slice(0,10)+'.csv');
+          }}),
             h('div',{style:{fontSize:11,color:C.muted}},'Complete financial picture: all assets minus all debts. Investment portfolio auto-fills from My Positions.')
           ),
           hasAK?h('div',{style:{marginLeft:'auto'}},aiBadge(activeAI)):null
@@ -5676,7 +6088,7 @@ function App(){
       var done=0;
       tickers.forEach(function(ticker){
         var url='https://query1.finance.yahoo.com/v1/finance/search?q='+encodeURIComponent(ticker)+'&newsCount=3&quotesCount=0&enableFuzzyQuery=false';
-        fetch(url,{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){
+        corsFetch(url).then(function(data){
           var news=(data&&data.news)||[];
           news.forEach(function(n){
             if(n.title&&n.link)allNews.push({
@@ -5748,7 +6160,7 @@ function App(){
         +'TODAY\'S ACTION PLAN:\n[3 specific, numbered, actionable items for today. Time-stamped if relevant. Not generic.]\n\n'
         +'FINAL VERDICT:\n[One paragraph: overall posture for today. Offense or defense?]';
 
-      callAI(prompt,keys,activeAI,2000).then(function(text){
+      callAI(prompt,keys,activeAI,2000,aiGoals).then(function(text){
         if(!text)throw new Error('Empty response');
         function gs(l,n){var m=text.match(new RegExp(l+'[:\\s]*([\\s\\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
         setAiResult({
@@ -6267,7 +6679,7 @@ function App(){
            ['Win Rate',        winRate.toFixed(0)+'%',                     winRate>60?C.green:winRate>45?C.warn:C.red, winners.length+' winners / '+losers.length+' losers'],
            ['Profit Factor',   profitFactor.toFixed(2)+'x',                profitFactor>=2?C.green:profitFactor>=1?C.warn:C.red, 'Avg win '+avgWin.toFixed(1)+'% / Avg loss '+Math.abs(avgLoss).toFixed(1)+'%'],
            ['Concentration',   topPct.toFixed(1)+'%',                      topPct>25?C.red:topPct>15?C.warn:C.green, 'Largest: '+(topPosition?topPosition.ticker:'N/A')],
-           ['Positions',       positions.length,                            C.blue, positions.length>20?'Well diversified':positions.length>10?'Moderate':'Concentrated'],
+           ['Positions',       positions.length,                            C.blue, positions.length>30?'Well diversified':positions.length>15?'Moderate':'Concentrated'],
            ['Avg Beta',        portBeta.toFixed(2),                        C.muted2, 'Weighted avg vs S&P'],
            ['Total Return',    (totalReturn>=0?'+':'')+totalReturn.toFixed(1)+'%', totalReturn>=0?C.green:C.red, 'All positions combined'],
           ].map(function(x){
@@ -6462,6 +6874,207 @@ function App(){
           );
         })()
       )
+
+      /* ── Portfolio vs S&P 500 Sector Comparison ── */
+      ,h('div',{className:'card',style:{marginTop:14}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:12}},
+          h('div',{style:{width:36,height:36,background:'rgba(0,200,184,.15)',border:'1px solid rgba(0,200,184,.4)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},
+            h('i',{className:'ti ti-chart-bar',style:{fontSize:18,color:C.teal}})),
+          h('div',null,
+            h('div',{style:{fontSize:13,fontWeight:700,color:C.textB}},'Portfolio vs S&P 500 Sector Weights'),
+            h('div',{style:{fontSize:11,color:C.muted}},'Green = overweight vs benchmark. Red = underweight. Grey = not held.')),
+          h(PrintButton,{label:'Sector Analysis'})
+        ),
+        (function(){
+          /* S&P 500 approximate sector weights (as of mid-2025) */
+          var SP500_WEIGHTS={
+            'Technology':31.5,'Healthcare':11.8,'Financials':13.2,
+            'Consumer Discretionary':10.4,'Communication Services':8.9,
+            'Industrials':8.2,'Consumer Staples':5.8,'Energy':3.6,
+            'Real Estate':2.3,'Materials':2.1,'Utilities':2.2
+          };
+          /* Map ticker to sector */
+          var SECTOR_MAP={
+            'NVDA':'Technology','MSFT':'Technology','AAPL':'Technology','AMD':'Technology',
+            'INTC':'Technology','AVGO':'Technology','TXN':'Technology','QCOM':'Technology',
+            'IBM':'Technology','CRM':'Technology','ORCL':'Technology','NOW':'Technology',
+            'AMAT':'Technology','KLAC':'Technology','LRCX':'Technology','MRVL':'Technology',
+            'META':'Communication Services','GOOGL':'Communication Services',
+            'NFLX':'Communication Services','DIS':'Communication Services',
+            'AMZN':'Consumer Discretionary','TSLA':'Consumer Discretionary',
+            'HD':'Consumer Discretionary','MCD':'Consumer Discretionary',
+            'NKE':'Consumer Discretionary','TGT':'Consumer Discretionary',
+            'JPM':'Financials','BAC':'Financials','WFC':'Financials','GS':'Financials',
+            'MS':'Financials','V':'Financials','MA':'Financials','AXP':'Financials',
+            'BLK':'Financials','SCHW':'Financials','C':'Financials','PNC':'Financials',
+            'JNJ':'Healthcare','UNH':'Healthcare','ABBV':'Healthcare','MRK':'Healthcare',
+            'PFE':'Healthcare','LLY':'Healthcare','TMO':'Healthcare','ABT':'Healthcare',
+            'AMGN':'Healthcare','BMY':'Healthcare','MDT':'Healthcare','SYK':'Healthcare',
+            'LMT':'Industrials','RTX':'Industrials','NOC':'Industrials','GD':'Industrials',
+            'GE':'Industrials','CAT':'Industrials','HON':'Industrials','UPS':'Industrials',
+            'DE':'Industrials','MMM':'Industrials','BA':'Industrials',
+            'XOM':'Energy','CVX':'Energy','COP':'Energy','OXY':'Energy','SLB':'Energy',
+            'KO':'Consumer Staples','PG':'Consumer Staples','PEP':'Consumer Staples',
+            'WMT':'Consumer Staples','COST':'Consumer Staples','PM':'Consumer Staples',
+            'MO':'Consumer Staples','CL':'Consumer Staples',
+            'AMT':'Real Estate','PLD':'Real Estate','EQIX':'Real Estate','O':'Real Estate',
+            'VNQ':'Real Estate','PSA':'Real Estate',
+            'NEE':'Utilities','SO':'Utilities','DUK':'Utilities','D':'Utilities',
+            'NUE':'Materials','FCX':'Materials','APD':'Materials','LIN':'Materials',
+            'PLTR':'Technology','COIN':'Financials','SQ':'Financials','PYPL':'Financials',
+            'SHOP':'Consumer Discretionary','SNAP':'Communication Services',
+          };
+          /* Calculate portfolio sector weights */
+          var portBySector={};
+          var totalVal=positions.reduce(function(s,p){
+            var price=safeLP(livePrices[p.ticker])||p.price||0;
+            return s+price*p.shares;
+          },0);
+          positions.forEach(function(p){
+            var price=safeLP(livePrices[p.ticker])||p.price||0;
+            var val=price*p.shares;
+            var sector=SECTOR_MAP[p.ticker]||p.sector||'Other';
+            /* Normalize to S&P sector names */
+            if(sector.indexOf('Tech')>=0)sector='Technology';
+            else if(sector.indexOf('Defense')>=0||sector.indexOf('Industrial')>=0)sector='Industrials';
+            else if(sector.indexOf('Health')>=0||sector.indexOf('Pharma')>=0||sector.indexOf('Bio')>=0)sector='Healthcare';
+            else if(sector.indexOf('Financ')>=0||sector.indexOf('Bank')>=0)sector='Financials';
+            else if(sector.indexOf('Energy')>=0)sector='Energy';
+            else if(sector.indexOf('Comm')>=0||sector.indexOf('Media')>=0)sector='Communication Services';
+            else if(sector.indexOf('Consumer')>=0&&sector.indexOf('Disc')>=0)sector='Consumer Discretionary';
+            else if(sector.indexOf('Consumer')>=0||sector.indexOf('Staple')>=0)sector='Consumer Staples';
+            else if(sector.indexOf('Real')>=0||sector.indexOf('REIT')>=0)sector='Real Estate';
+            else if(sector.indexOf('Util')>=0)sector='Utilities';
+            else if(sector.indexOf('Material')>=0)sector='Materials';
+            portBySector[sector]=(portBySector[sector]||0)+val;
+          });
+          var sectors=Object.keys(SP500_WEIGHTS).sort();
+          var maxDiff=Math.max.apply(null,sectors.map(function(s){
+            var pw=totalVal>0?(portBySector[s]||0)/totalVal*100:0;
+            return Math.abs(pw-(SP500_WEIGHTS[s]||0));
+          }));
+          return h('div',null,
+            /* Summary stats */
+            h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:12}},
+              (function(){
+                var overweight=sectors.filter(function(s){var pw=totalVal>0?(portBySector[s]||0)/totalVal*100:0;return pw>SP500_WEIGHTS[s]+3;});
+                var underweight=sectors.filter(function(s){var pw=totalVal>0?(portBySector[s]||0)/totalVal*100:0;return pw<SP500_WEIGHTS[s]-3&&(portBySector[s]||0)>0;});
+                var absent=sectors.filter(function(s){return !(portBySector[s]>0);});
+                return [
+                  ['Overweight',overweight.join(', ')||'None',C.green],
+                  ['Underweight',underweight.join(', ')||'None',C.warn],
+                  ['Not Held',absent.join(', ')||'None',C.muted],
+                ].map(function(x){
+                  return h('div',{key:x[0],className:'card',style:{background:x[2]+'08',borderColor:x[2]+'25'}},
+                    h('div',{style:{fontSize:9,color:x[2],fontWeight:700,marginBottom:2}},x[0]),
+                    h('div',{style:{fontSize:9,color:C.muted2,lineHeight:1.4}},x[1])
+                  );
+                });
+              })()
+            ),
+            /* Bar chart comparison */
+            h('div',{style:{display:'flex',flexDirection:'column',gap:4}},
+              sectors.map(function(sector){
+                var spW=SP500_WEIGHTS[sector]||0;
+                var portW=totalVal>0?(portBySector[sector]||0)/totalVal*100:0;
+                var diff=portW-spW;
+                var barScale=40/Math.max(spW,portW,1);
+                var overW=diff>3;var underW=diff<-3&&portW>0;var notHeld=portW===0;
+                var col=overW?C.green:underW?C.warn:notHeld?C.brd:C.teal;
+                return h('div',{key:sector,style:{display:'flex',alignItems:'center',gap:8}},
+                  h('div',{style:{width:130,fontSize:10,color:C.muted,flexShrink:0,textAlign:'right',lineHeight:1.2}},sector),
+                  /* S&P bar */
+                  h('div',{style:{width:spW*barScale+'%',minWidth:2,height:10,background:'rgba(255,255,255,.15)',borderRadius:2,flexShrink:0}}),
+                  /* Portfolio bar */
+                  portW>0?h('div',{style:{width:portW*barScale+'%',minWidth:2,height:10,background:col,borderRadius:2,flexShrink:0,marginLeft:portW>spW?0:-((spW-portW)*barScale)+'%'}}):null,
+                  h('div',{style:{fontSize:9,fontFamily:C.mono,color:col,width:60,flexShrink:0}},
+                    portW>0?portW.toFixed(1)+'%':'--',
+                    h('span',{style:{color:C.muted}},' / '+spW.toFixed(1)+'%')),
+                  diff!==0&&portW>0?h('span',{style:{fontSize:9,color:col,fontWeight:700}},(diff>0?'+':'')+diff.toFixed(1)+'%'):null
+                );
+              })
+            ),
+            h('div',{style:{fontSize:9,color:C.muted,marginTop:8,display:'flex',gap:16}},
+              h('span',null,h('span',{style:{background:'rgba(255,255,255,.15)',display:'inline-block',width:12,height:8,borderRadius:1,marginRight:4}}),h('span',null,'S&P 500')),
+              h('span',null,h('span',{style:{background:C.teal,display:'inline-block',width:12,height:8,borderRadius:1,marginRight:4}}),h('span',null,'Your Portfolio'))
+            )
+          );
+        })()
+      ),
+
+      /* ── AI Weekly Portfolio Letter ── */
+      h((function WeeklyLetter(){
+        var swl=useState(false),wlLoad=swl[0],setWlLoad=swl[1];
+        var swlr=useState(''),wlResult=swlr[0],setWlResult=swlr[1];
+        var swlm=useState(''),wlMsg=swlm[0],setWlMsg=swlm[1];
+
+        function generateLetter(){
+          if(!hasAK){setWlMsg('Add Gemini or OpenAI key in Settings.');return;}
+          setWlLoad(true);setWlResult('');setWlMsg('');
+          var totalVal=positions.reduce(function(s,p){return s+((safeLP(livePrices[p.ticker])||p.price)*p.shares);},0);
+          var topMovers=positions.map(function(p){
+            var lp=safeLP(livePrices[p.ticker])||p.price;
+            var pnlPct=p.avgCost>0?(lp-p.avgCost)/p.avgCost*100:0;
+            return {ticker:p.ticker,pnlPct:pnlPct,val:lp*p.shares};
+          }).sort(function(a,b){return Math.abs(b.pnlPct)-Math.abs(a.pnlPct);}).slice(0,5);
+          var prompt=
+            'Write a concise weekly portfolio review (3-4 paragraphs, plain English, no markdown headers or bullet points). Structure it as: '+
+            '1) Portfolio summary: total value $'+totalVal.toFixed(0)+', overall health, top winners and laggards. '+
+            'Top movers: '+topMovers.map(function(m){return m.ticker+' ('+m.pnlPct.toFixed(1)+'%)';}).join(', ')+'. '+
+            '2) Market context: what macro forces (rates, sector rotation, earnings) are affecting the portfolio right now. '+
+            '3) Key risks to watch this week. '+
+            '4) 2-3 specific action items (positions to add to, trim, or watch closely). '+
+            'Portfolio ('+positions.length+' positions): '+
+            positions.slice(0,12).map(function(p){
+              var lp=safeLP(livePrices[p.ticker])||p.price;
+              var pnlPct=p.avgCost>0?(lp-p.avgCost)/p.avgCost*100:0;
+              return p.ticker+'('+lp.toFixed(0)+', '+(pnlPct>=0?'+':'')+pnlPct.toFixed(1)+'%)';
+            }).join(', ')+
+            '. Be specific, name actual tickers, use dollar amounts. Write like a seasoned portfolio manager.';
+          callAI(prompt,keys,activeAI,1800,aiGoals).then(function(text){
+            setWlResult(text);setWlLoad(false);
+            /* Auto-save to Trade Journal */
+            var entry={
+              id:'wl_'+Date.now(),
+              date:new Date().toLocaleDateString(),
+              type:'Weekly Letter',
+              ticker:'PORTFOLIO',
+              notes:text,
+              tags:['#weekly','#ai-letter']
+            };
+            var journal=lsGet('apex_journal_v1',[]);
+            lsSet('apex_journal_v1',journal.concat([entry]));
+          }).catch(function(e){setWlMsg('Error: '+e.message);setWlLoad(false);});
+        }
+
+        return h('div',{className:'card',style:{marginTop:14,borderColor:C.gold+'50'}},
+          h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:10}},
+            h('div',{style:{width:36,height:36,background:C.gold+'15',border:'1px solid '+C.gold+'40',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},
+              h('i',{className:'ti ti-news',style:{fontSize:18,color:C.gold}})),
+            h('div',{flex:1},
+              h('div',{style:{fontSize:13,fontWeight:700,color:C.textB}},'AI Weekly Portfolio Letter'),
+              h('div',{style:{fontSize:11,color:C.muted}},'Personalized 4-paragraph review -- saved to Trade Journal automatically')),
+            h('div',{style:{display:'flex',gap:6,marginLeft:'auto',alignItems:'center'}},
+              wlResult?h('button',{className:'btn btn-d',style:{fontSize:10},
+                onClick:function(){setWlResult('');setWlMsg('');}},h('i',{className:'ti ti-refresh'}),' New'):null,
+              h('button',{className:'btn btn-gold',style:{fontSize:11},onClick:generateLetter,disabled:wlLoad||!hasAK},
+                wlLoad?h(Fragment,null,h('span',{className:'sp'}),' Writing...'):
+                h(Fragment,null,h('i',{className:'ti ti-brain'}),' Generate Weekly Report')))
+          ),
+          wlMsg?h('div',{style:{fontSize:11,color:C.red,marginBottom:8}},wlMsg):null,
+          wlLoad?h('div',{style:{textAlign:'center',padding:'20px 0',color:C.muted,fontSize:12}},
+            h('span',{className:'sp',style:{marginRight:8}}),
+            'Analyzing your portfolio... this takes about 15 seconds'):null,
+          wlResult?h('div',{style:{fontSize:12,color:C.textB,lineHeight:1.8,whiteSpace:'pre-wrap',
+              background:C.surf2,borderRadius:6,padding:'14px 16px',
+              borderLeft:'3px solid '+C.gold}},wlResult):null,
+          wlResult?h('div',{style:{fontSize:10,color:C.teal,marginTop:6}},
+            h('i',{className:'ti ti-circle-check',style:{marginRight:4}}),
+            'Saved to Trade Journal'):null,
+          !hasAK&&!wlLoad&&!wlResult?h('div',{style:{fontSize:11,color:C.muted,textAlign:'center',padding:'8px 0'}},
+            'Add Gemini (free) or OpenAI key in Settings to generate your weekly report.'):null
+        );
+      }),null)
     );
   }
 
@@ -6577,7 +7190,14 @@ function App(){
             h('i',{className:'ti ti-receipt-tax',style:{fontSize:18,color:C.gold}})
           ),
           h('div',null,
-            h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'Tax Lot Manager'),h(PrintButton,{label:'Tax Lot Report'}),
+            h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'Tax Lot Manager'),
+          h(PrintButton,{label:'Tax Lot Report'}),
+          h(ExportBtn,{label:'Export Tax Lots',onClick:function(){
+            var lots=lsGet('apex_tax_lots',[]);
+            if(!lots.length){alert('No tax lots to export.');return;}
+            var rows=lots.map(function(l){return {Ticker:l.ticker||'',Shares:l.shares||'','Buy Date':l.buyDate||'','Cost Basis':l.costBasis||'','Current Price':safeLP(livePrices[l.ticker])||'',Type:l.type||'Long'};});
+            downloadCSV(toCSV(rows,['Ticker','Shares','Buy Date','Cost Basis','Current Price','Type']),'apex-taxlots-'+new Date().toISOString().slice(0,10)+'.csv');
+          }}),
             h('div',{style:{fontSize:11,color:C.muted}},'Track individual tax lots, estimate capital gains, identify tax-loss harvesting opportunities.')
           ),
           hasAK?h('div',{style:{marginLeft:'auto'}},aiBadge(activeAI)):null
@@ -6749,6 +7369,47 @@ function App(){
     var sl=useState(false),aiLoad=sl[0],setAiLoad=sl[1];
     var sm=useState(''),aiMsg=sm[0],setAiMsg=sm[1];
     var ss=useState(null),selEarnings=ss[0],setSelEarnings=ss[1];
+    var slive=useState({}),liveDates=slive[0],setLiveDates=slive[1];
+    var sfetch=useState(false),fetchingDates=sfetch[0],setFetchingDates=sfetch[1];
+    var sfmsg=useState(''),fetchMsg=sfmsg[0],setFetchMsg=sfmsg[1];
+
+    function fetchLiveEarningsDates(){
+      var tickers=[...new Set(
+        positions.map(function(p){return p.ticker;})
+        .concat(watchlist.map(function(w){return w.ticker;}))
+      )].slice(0,20);
+      if(!tickers.length){setFetchMsg('Add positions first.');return;}
+      setFetchingDates(true);setFetchMsg('Fetching dates...');
+      var results={};var done=0;
+      tickers.forEach(function(t){
+        var url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(normalizeYahooTicker(t))+'?interval=1d&range=1d';
+        corsFetch(url).then(function(data){
+          var meta=data&&data.chart&&data.chart.result&&data.chart.result[0]&&data.chart.result[0].meta;
+          if(meta){
+            var ts=meta.currentTradingPeriod&&meta.currentTradingPeriod.regular;
+            /* earningsTimestamp is in meta */
+            var ets=meta.earningsTimestamp||meta.earningsTimestampStart;
+            if(ets){
+              var d=new Date(ets*1000);
+              results[t]={
+                nextDate:d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),
+                nextTime:meta.earningsTimestampEnd?'After Close':'TBD',
+                source:'live'
+              };
+            }
+          }
+        }).catch(function(){}).finally(function(){
+          done++;
+          setFetchMsg('Fetched '+done+'/'+tickers.length+'...');
+          if(done===tickers.length){
+            setLiveDates(results);
+            setFetchingDates(false);
+            var count=Object.keys(results).length;
+            setFetchMsg(count+' dates updated from Yahoo Finance');
+          }
+        });
+      });
+    }
 
     /* Build earnings list from positions + watchlist */
     var allTickers=positions.map(function(p){return p.ticker;}).concat(watchlist.map(function(w){return w.ticker;}));
@@ -6784,7 +7445,7 @@ function App(){
         +'CONGRESSIONAL SIGNALS:\n[Any recent congressional activity that suggests earnings conviction?]\n\n'
         +'PRICE TARGETS POST-EARNINGS:\n[If beat: where does stock go? If miss: how far does it fall?]\n\n'
         +'FINAL RECOMMENDATION:\n[Hold through earnings, sell before, buy the dip after a miss, or buy before?]';
-      callAI(prompt,keys,activeAI,1200).then(function(text){
+      callAI(prompt,keys,activeAI,1200,aiGoals).then(function(text){
         if(!text)throw new Error('Empty response');
         function gs(l,n){var m=text.match(new RegExp(l+'[:\\s]*([\\s\\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
         setAiResult({
@@ -7796,7 +8457,7 @@ function App(){
         +'I-BOND AND TIPS:\n[Is now a good time for I-Bonds? TIPS vs nominal treasuries at current real yields?]\n\n'
         +'CONGRESSIONAL ANGLE:\n[How are congressional members positioned in bonds/rates? Any relevant legislation?]\n\n'
         +'FINAL VERDICT:\n[Top 3 fixed income moves to make in the next 90 days.]';
-      callAI(prompt,keys,activeAI,1200).then(function(text){
+      callAI(prompt,keys,activeAI,1200,aiGoals).then(function(text){
         if(!text)throw new Error('Empty response');
         function gs(l,n){var m=text.match(new RegExp(l+'[:\\s]*([\\s\\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
         setAiResult({
@@ -8024,8 +8685,14 @@ function App(){
     var sar=useState(null),aiResult=sar[0],setAiResult=sar[1];
 
     function getPrice(t){
-      var rp=positions.find(function(p){return p.ticker===t.toUpperCase();});
-      if(rp)return rp.price;
+      var sym=t.toUpperCase();
+      /* 1. Live prices from main portfolio refresh (most accurate) */
+      var lp=safeLP(livePrices[sym]);
+      if(lp&&lp>0)return lp;
+      /* 2. Real portfolio position price */
+      var rp=positions.find(function(p){return p.ticker===sym;});
+      if(rp&&rp.price>0)return rp.price;
+      /* 3. Seed fallback prices */
       var PRICES={'NVDA':130.42,'LMT':487.24,'INTC':19.84,'VFIAX':552.18,'MSFT':421.84,
         'META':596.42,'RTX':131.84,'AAPL':212.84,'PLTR':82.14,'AMZN':228.94,
         'GE':196.42,'NOC':495.18,'TSLA':284.18,'COIN':310.84,'GS':612.18,'SPY':589.42};
@@ -8087,9 +8754,9 @@ function App(){
     function getPaperAI(){
       if(!hasAK){setAiMsg('ERROR: No AI key. Add OpenAI or Gemini in Settings.');return;}
       setAiLoad(true);setAiMsg('Comparing paper vs real portfolio...');
-      var paperPos=state.positions.map(function(p){return p.ticker+'('+p.shares+'sh @ $'+p.avgCost.toFixed(2)+')';}).join(', ');
-      var realPos=positions.map(function(p){return p.ticker+'('+p.shares+'sh @ $'+p.avgCost.toFixed(2)+')';}).join(', ');
-      var recentTrades=state.trades.slice(-5).map(function(t){return t.action+' '+t.shares+' '+t.ticker+' @ $'+t.price.toFixed(2);}).join(', ');
+      var paperPos=state.positions.map(function(p){return p.ticker+'('+p.shares+'sh @ $'+(+(p.avgCost||0)).toFixed(2)+')';}).join(', ');
+      var realPos=positions.map(function(p){return p.ticker+'('+p.shares+'sh @ $'+(+(p.avgCost||0)).toFixed(2)+')';}).join(', ');
+      var recentTrades=state.trades.slice(-5).map(function(t){return t.action+' '+t.shares+' '+t.ticker+' @ $'+(+(t.price||0)).toFixed(2);}).join(', ');
       var prompt='You are a trading coach reviewing a paper portfolio vs a real portfolio.\n\n'
         +'PAPER PORTFOLIO:\n'
         +'Value: $'+Math.round(paperPortValue).toLocaleString()+'\n'
@@ -8107,7 +8774,7 @@ function App(){
         +'WHAT TO TEST NEXT:\n[2-3 specific strategies to test in paper before risking real money.]\n\n'
         +'READY FOR REAL MONEY:\n[Which paper positions or strategies are ready to be executed with real money?]\n\n'
         +'FINAL COACHING VERDICT:\n[One honest assessment: what is the most important trading lesson from this paper session?]';
-      callAI(prompt,keys,activeAI,1200).then(function(text){
+      callAI(prompt,keys,activeAI,1200,aiGoals).then(function(text){
         if(!text)throw new Error('Empty response');
         function gs(l,n){var m=text.match(new RegExp(l+'[:\\s]*([\\s\\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
         setAiResult({
@@ -8196,7 +8863,7 @@ function App(){
                 return h('tr',{key:p.ticker},
                   h('td',{style:{fontFamily:C.mono,fontWeight:700,color:C.textB}},p.ticker),
                   h('td',{style:{fontFamily:C.mono}},p.shares.toFixed(2)),
-                  h('td',{style:{fontFamily:C.mono}},'$'+p.avgCost.toFixed(2)),
+                  h('td',{style:{fontFamily:C.mono}},'$'+(+(p.avgCost||0)).toFixed(2)),
                   h('td',{style:{fontFamily:C.mono,color:C.muted}},'$'+mp.toFixed(2)),
                   h('td',{style:{fontFamily:C.mono}},'$'+Math.round(mv).toLocaleString()),
                   h('td',{style:{fontFamily:C.mono,color:pl>=0?C.green:C.red}},(pl>=0?'+$':'-$')+Math.abs(pl).toFixed(0)),
@@ -8234,7 +8901,7 @@ function App(){
                   h('td',null,h('span',{style:{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:3,background:col+'18',color:col,border:'1px solid '+col+'30'}},t.action)),
                   h('td',{style:{fontFamily:C.mono,fontWeight:700,color:C.textB}},t.ticker),
                   h('td',{style:{fontFamily:C.mono}},t.shares),
-                  h('td',{style:{fontFamily:C.mono}},'$'+t.price.toFixed(2)),
+                  h('td',{style:{fontFamily:C.mono}},'$'+(+(t.price||0)).toFixed(2)),
                   h('td',{style:{fontFamily:C.mono,color:col}},'$'+Math.round(t.total).toLocaleString()),
                   h('td',{style:{fontSize:10,color:C.muted}},t.note||'--'),
                   h('td',{style:{fontSize:10,color:C.muted,fontFamily:C.mono}},t.date)
@@ -8949,8 +9616,8 @@ function App(){
       dgResult?h('div',null,
         h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:10}},
           [['Initial Cost','$'+Math.round(dgResult.costBasis).toLocaleString(),C.textB],
-           ['Year 1 Income','$'+dgResult.rows[0].income.toFixed(0)+'/yr',C.green],
-           ['Year 1 YOC',dgResult.rows[0].yoc.toFixed(2)+'%',C.green],
+           ['Year 1 Income',dgResult.rows&&dgResult.rows[0]?'$'+dgResult.rows[0].income.toFixed(0)+'/yr':'--',C.green],
+           ['Year 1 YOC',dgResult.rows&&dgResult.rows[0]?dgResult.rows[0].yoc.toFixed(2)+'%':'--',C.green],
           ].map(function(x){return h('div',{key:x[0],className:'met'},h('div',{className:'met-l'},x[0]),h('div',{className:'met-v',style:{color:x[2]}},x[1]));})
         ),
         h('div',{className:'card',style:{padding:0,overflow:'hidden',marginBottom:10}},
@@ -9271,7 +9938,7 @@ function App(){
       if(d){setFundData({ticker:t,data:d,live:false});return;}
       /* Not in local DB -- fetch from Yahoo Finance */
       setFetching(true);
-      var url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(t)+'?interval=1d&range=1d';
+      var url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(normalizeYahooTicker(t))+'?interval=1d&range=1d';
       fetch(url,{cache:'no-store'})
         .then(function(r){return r.json();})
         .then(function(data){
@@ -9571,7 +10238,7 @@ function App(){
         +'POSITION SCALING STRATEGY:\n[Should I buy full size or scale in? Pyramid strategy? Dollar cost averaging?]\n\n'
         +'CONGRESSIONAL/INSTITUTIONAL CONTEXT:\n[Any smart money signals on this ticker that affect conviction level?]\n\n'
         +'FINAL RECOMMENDATION:\n[Take the trade at full size, half size, or pass? Specific adjustments to make.]';
-      callAI(prompt,keys,activeAI,1200).then(function(text){
+      callAI(prompt,keys,activeAI,1200,aiGoals).then(function(text){
         if(!text)throw new Error('Empty response');
         function gs(l,n){var m=text.match(new RegExp(l+'[:\\s]*([\\s\\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
         setAiResult({
@@ -9595,7 +10262,7 @@ function App(){
     /* Load from portfolio quick-fill */
     function loadFromPosition(pos){
       setTicker(pos.ticker);
-      setEntryPrice(String(pos.price.toFixed(2)));
+      setEntryPrice(String((+(pos.price||0)).toFixed(2)));
       setStopPrice(String(Math.max(0,pos.stop||pos.price*0.93).toFixed(2)));
       setTargetPrice(String(pos.target||0));
       setResult(null);setAiResult(null);setAiMsg('');
@@ -9852,17 +10519,169 @@ function App(){
             })
           )
         )
-      )
+      ),
+
+      /* ── Earnings Countdown for your positions ── */
+      (function(){
+        /* Known upcoming earnings -- auto-updates based on typical quarterly schedule */
+        var NOW=new Date();
+        var EARN_SCHED={
+          'NVDA':  {name:'Nvidia',        nextQ:'Q1 FY26',approxDate:'2025-08-20',est:0.64},
+          'MSFT':  {name:'Microsoft',     nextQ:'Q4 FY25',approxDate:'2025-07-30',est:3.10},
+          'AAPL':  {name:'Apple',         nextQ:'Q3 FY25',approxDate:'2025-07-31',est:1.43},
+          'AMZN':  {name:'Amazon',        nextQ:'Q2 2025', approxDate:'2025-08-01',est:1.29},
+          'META':  {name:'Meta',          nextQ:'Q2 2025', approxDate:'2025-07-30',est:5.23},
+          'GOOGL': {name:'Alphabet',      nextQ:'Q2 2025', approxDate:'2025-07-29',est:2.01},
+          'TSLA':  {name:'Tesla',         nextQ:'Q2 2025', approxDate:'2025-07-23',est:0.45},
+          'JPM':   {name:'JPMorgan',      nextQ:'Q2 2025', approxDate:'2025-07-15',est:4.48},
+          'BAC':   {name:'BofA',          nextQ:'Q2 2025', approxDate:'2025-07-16',est:0.83},
+          'LMT':   {name:'Lockheed',      nextQ:'Q2 2025', approxDate:'2025-07-22',est:6.52},
+          'RTX':   {name:'RTX Corp',      nextQ:'Q2 2025', approxDate:'2025-07-22',est:1.44},
+          'NOC':   {name:'Northrop',      nextQ:'Q2 2025', approxDate:'2025-07-24',est:6.90},
+          'GE':    {name:'GE Aerospace',  nextQ:'Q2 2025', approxDate:'2025-07-23',est:1.07},
+          'PLTR':  {name:'Palantir',      nextQ:'Q2 2025', approxDate:'2025-08-04',est:0.13},
+          'AMD':   {name:'AMD',           nextQ:'Q2 2025', approxDate:'2025-07-29',est:0.68},
+          'INTC':  {name:'Intel',         nextQ:'Q2 2025', approxDate:'2025-07-24',est:0.02},
+          'COIN':  {name:'Coinbase',      nextQ:'Q2 2025', approxDate:'2025-08-06',est:1.87},
+          'ABBV':  {name:'AbbVie',        nextQ:'Q2 2025', approxDate:'2025-07-25',est:2.97},
+          'XOM':   {name:'ExxonMobil',    nextQ:'Q2 2025', approxDate:'2025-08-01',est:1.84},
+          'CVX':   {name:'Chevron',       nextQ:'Q2 2025', approxDate:'2025-08-01',est:2.56},
+          'WMT':   {name:'Walmart',       nextQ:'Q2 FY26', approxDate:'2025-08-19',est:0.69},
+          'COST':  {name:'Costco',        nextQ:'Q4 FY25', approxDate:'2025-09-25',est:4.79},
+          'GS':    {name:'Goldman Sachs', nextQ:'Q2 2025', approxDate:'2025-07-14',est:8.92},
+          'MS':    {name:'Morgan Stanley',nextQ:'Q2 2025', approxDate:'2025-07-16',est:1.96},
+        };
+        /* Only show earnings for positions user actually holds */
+        var myEarnings=positions.map(function(p){
+          var e=EARN_SCHED[p.ticker];
+          if(!e)return null;
+          var d=new Date(e.approxDate);
+          var diff=Math.round((d-NOW)/(1000*60*60*24));
+          return Object.assign({},e,{ticker:p.ticker,days:diff,date:e.approxDate});
+        }).filter(function(x){return x&&x.days>=-3&&x.days<=90;})
+          .sort(function(a,b){return a.days-b.days;});
+
+        if(myEarnings.length===0)return null;
+        return h('div',{className:'card',style:{marginTop:14,borderColor:'rgba(245,200,66,.3)'}},
+          h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:10}},
+            h('i',{className:'ti ti-calendar-event',style:{color:C.gold,fontSize:16}}),
+            h('div',{style:{fontSize:13,fontWeight:700,color:C.textB}},'Upcoming Earnings -- Your Positions'),
+            h('div',{style:{fontSize:10,color:C.muted,marginLeft:'auto'}},'Dates approximate')
+          ),
+          h('div',{style:{display:'flex',flexDirection:'column',gap:5}},
+            myEarnings.map(function(e){
+              var urgency=e.days<=3?C.red:e.days<=14?C.warn:C.muted2;
+              var label=e.days<0?'Reported '+(Math.abs(e.days))+'d ago':e.days===0?'TODAY':e.days===1?'TOMORROW':e.days+'d away';
+              return h('div',{key:e.ticker,style:{display:'flex',alignItems:'center',gap:10,background:e.days<=3?urgency+'08':C.surf2,border:'1px solid '+(e.days<=3?urgency+'35':C.brd),borderRadius:5,padding:'7px 10px'}},
+                h('span',{style:{fontFamily:C.mono,fontWeight:700,color:C.textB,width:46,flexShrink:0}},e.ticker),
+                h('span',{style:{fontSize:11,color:C.muted,flex:1}},e.name+' '+e.nextQ),
+                h('span',{style:{fontSize:10,color:C.muted}},'Est EPS: $'+e.est),
+                h('span',{style:{fontSize:10,fontWeight:700,color:urgency,flexShrink:0,minWidth:80,textAlign:'right'}},label),
+                e.days<=7&&e.days>=0?h('span',{style:{fontSize:9,background:urgency+'18',color:urgency,border:'1px solid '+urgency+'30',padding:'1px 5px',borderRadius:2,fontWeight:700,flexShrink:0}},'ALERT'):null
+              );
+            })
+          )
+        );
+      })()
     );
   }
 
 
   function TabPositions(){
+    /* Sort & filter state */
+    var sps=useState('value'),posSort=sps[0],setPosSort=sps[1];
+    var spsd=useState(true),posSortDesc=spsd[0],setPosSortDesc=spsd[1];
+    var spf=useState(''),posFilter=spf[0],setPosFilter=spf[1];
+    var spat=useState('all'),posAcct=spat[0],setPosAcct=spat[1];
+
+    /* Compute sorted + filtered positions */
+    var filteredPos=positions.filter(function(p){
+      if(posFilter&&p.ticker.indexOf(posFilter.toUpperCase())<0&&
+        (p.name||'').toUpperCase().indexOf(posFilter.toUpperCase())<0&&
+        (p.notes||'').toLowerCase().indexOf(posFilter.toLowerCase())<0)return false;
+      if(posAcct!=='all'&&p.account!==posAcct)return false;
+      return true;
+    }).sort(function(a,b){
+      var lpa=safeLP(livePrices[a.ticker])||a.price||0;
+      var lpb=safeLP(livePrices[b.ticker])||b.price||0;
+      var va=lpa*a.shares,vb=lpb*b.shares;
+      var pa=a.avgCost>0?(lpa-a.avgCost)/a.avgCost*100:0;
+      var pb=b.avgCost>0?(lpb-b.avgCost)/b.avgCost*100:0;
+      var ga=(lpa-a.avgCost)*a.shares,gb=(lpb-b.avgCost)*b.shares;
+      var val=posSort==='value'?va-vb:
+               posSort==='pnl_pct'?pa-pb:
+               posSort==='pnl_abs'?ga-gb:
+               posSort==='ticker'?a.ticker.localeCompare(b.ticker):
+               posSort==='score'?(a.score||0)-(b.score||0):
+               posSort==='sector'?(a.sector||'').localeCompare(b.sector||''):0;
+      return posSortDesc?-val:val;
+    });
+
+    var acctTags=[...new Set(positions.map(function(p){return p.account||'';}).filter(Boolean))];
+
     return h('div',null,
-      secLbl('ti-briefcase','My positions ('+positions.length+'/10)',Btn('btn-p',{},function(){setAddingPos(function(v){return !v;});},false,h(Fragment,null,h('i',{className:'ti ti-plus'}),' Add position'))),
+      secLbl('ti-briefcase','My positions ('+filteredPos.length+(filteredPos.length!==positions.length?'/'+positions.length:')'),
+        h(Fragment,null,
+          h(ExportBtn,{label:'Export',onClick:function(){
+            if(!positions.length){alert('No positions to export.');return;}
+            var rows=positions.map(function(p){
+              var lp=safeLP(livePrices[p.ticker])||p.price;
+              return {Ticker:p.ticker,Name:p.name||'',Shares:p.shares,
+                'Avg Cost':p.avgCost,Price:lp,
+                Value:(lp*p.shares).toFixed(2),
+                'P&L $':((lp-p.avgCost)*p.shares).toFixed(2),
+                'P&L %':p.avgCost>0?((lp-p.avgCost)/p.avgCost*100).toFixed(2)+'%':'',
+                Sector:p.sector||'',Rating:p.rec||'',Notes:p.notes||''};
+            });
+            downloadCSV(toCSV(rows,['Ticker','Name','Account','Shares','Avg Cost','Price','Value','P&L $','P&L %','Sector','Rating','Notes']),'apex-positions-'+new Date().toISOString().slice(0,10)+'.csv');
+          }}),
+          Btn('btn-p',{},function(){setAddingPos(function(v){return !v;});},false,h(Fragment,null,h('i',{className:'ti ti-plus'}),' Add position')),
+          h('button',{className:'btn btn-d',style:{fontSize:10},
+            title:'Move positions with >30% loss to Tax Lots for tax-loss harvesting',
+            onClick:function(){
+              var losers=positions.filter(function(p){
+                var lp=safeLP(livePrices[p.ticker])||p.price;
+                return p.avgCost>0&&(lp-p.avgCost)/p.avgCost*100<-30;
+              });
+              if(!losers.length){alert('No positions with >30% unrealized loss found.');return;}
+              if(!confirm('Archive '+losers.length+' position(s) to Tax Lots? '+losers.map(function(p){var lp=safeLP(livePrices[p.ticker])||p.price;return p.ticker+' ('+(((lp-p.avgCost)/p.avgCost)*100).toFixed(0)+'%)';}).join(', '))){return;}
+              var lots=lsGet('apex_tax_lots',[]);
+              var today=new Date().toLocaleDateString();
+              losers.forEach(function(p){
+                lots.push({id:'lot_'+Date.now()+'_'+p.ticker,ticker:p.ticker,shares:p.shares,buyDate:'Archived '+today,costBasis:+(p.avgCost||0).toFixed(2),currentPrice:safeLP(livePrices[p.ticker])||p.price,type:'Harvested'});
+              });
+              lsSet('apex_tax_lots',lots);
+              var loserIds=losers.map(function(l){return l.id;});
+              updPos(positions.filter(function(p){return loserIds.indexOf(p.id)<0;}));
+              alert('Archived '+losers.length+' position(s). View in Tax Lots tab.');
+            }},h('i',{className:'ti ti-archive'}),' Harvest')
+        )),
       addingPos?h(AddPosForm,null):null,
+
+      /* ── Sort & Filter Bar ── */
+      positions.length>1?h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8,alignItems:'center'}},
+        h('input',{type:'text',className:'finp',autoComplete:'off',
+          value:posFilter,placeholder:'Filter by ticker, name or tag...',
+          onChange:function(e){setPosFilter(e.target.value);},
+          style:{flex:1,minWidth:120,fontSize:11}}),
+        h('select',{className:'finp',style:{width:130},value:posSort,
+          onChange:function(e){setPosSort(e.target.value);}},
+          [['value','By Value'],['pnl_pct','By P&L %'],['pnl_abs','By P&L $'],
+           ['ticker','By Ticker'],['score','By Score'],['sector','By Sector']
+          ].map(function(o){return h('option',{key:o[0],value:o[0]},o[1]);})),
+        h('button',{className:'btn btn-d',style:{fontSize:10,padding:'6px 8px'},
+          title:posSortDesc?'Descending (click to reverse)':'Ascending (click to reverse)',
+          onClick:function(){setPosSortDesc(function(v){return !v;});}},
+          h('i',{className:'ti '+(posSortDesc?'ti-arrow-down':'ti-arrow-up')})),
+        acctTags.length>0?h('select',{className:'finp',style:{width:110},value:posAcct,
+          onChange:function(e){setPosAcct(e.target.value);}},
+          h('option',{value:'all'},'All accounts'),
+          acctTags.map(function(a){return h('option',{key:a,value:a},a);})):null,
+        filteredPos.length!==positions.length?h('span',{style:{fontSize:10,color:C.warn}},
+          filteredPos.length+' of '+positions.length+' shown'):null
+      ):null,
       (positions.length===0&&!addingPos)?emSt('ti-plus-circle','No positions - click Add position'):null,
-      positions.map(function(p){
+      filteredPos.map(function(p){
         var pv=(getPrice(p)-p.avgCost)*p.shares;
         var pct=Math.min(p.shares,100);
         return h('div',{key:p.id,className:'card cp',onClick:function(){setDetail(p);},style:{marginBottom:8}},
@@ -9872,6 +10691,9 @@ function App(){
               tPill(p.type),
               RatingBadge(p.rec),
               GradeBadge(p.score,p.avgCost>0?((getPrice(p)-p.avgCost)/p.avgCost*100):0),
+              p.account?h('span',{style:{fontSize:9,background:'rgba(168,85,247,.12)',color:'#a855f7',border:'1px solid rgba(168,85,247,.25)',borderRadius:3,padding:'1px 5px',fontWeight:600,flexShrink:0}},
+                {taxable:'Taxable',roth_ira:'Roth IRA',trad_ira:'Trad IRA','401k':'401k',roth_401k:'Roth 401k',hsa:'HSA','529':'529',other:'Other'}[p.account]||p.account
+              ):null,
               finLinks(p.ticker,true),
               pv>=1000?h('span',{className:'pill p-warn'},'Trim signal'):null,
               pv<=-500?h('span',{className:'pill p-red'},'Stop review'):null
@@ -9885,7 +10707,38 @@ function App(){
           ),
           p.type!=='mutual'?h('div',null,h('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:2}},h('span',{style:{fontSize:10,color:C.muted}},'Accumulation'),h('span',{style:{fontSize:10,fontFamily:C.mono,color:C.muted}},p.shares+'/100')),h('div',{className:'pbar'},h('div',{className:'pbar-f',style:{width:pct+'%'}}))):null,
           (p.type==='mutual'&&p.expenseRatio!=null)?h('div',{style:{fontSize:11,color:C.teal,marginBottom:6}},'ER: '+p.expenseRatio+'% | '+p.category+' | '+p.aum):null,
-          h('div',{style:{marginTop:8}},scBar(p.score,60))
+          h('div',{style:{marginTop:8}},scBar(p.score,60)),
+          /* Quick tag buttons */
+          h('div',{style:{display:'flex',gap:4,flexWrap:'wrap',marginTop:6}},
+            (function(){
+              /* Extract #tags from notes field */
+              var noteTags=(p.notes||'').match(/#[a-zA-Z0-9_]+/g)||[];
+              /* Built-in quick tags */
+              var QUICK_TAGS=['#core','#speculative','#dividend','#growth','#harvest','#trim','#add','#watchclose'];
+              return h(Fragment,null,
+                noteTags.map(function(tag){
+                  return h('span',{key:tag,style:{fontSize:9,background:C.blue+'18',color:C.blue,border:'1px solid '+C.blue+'30',borderRadius:10,padding:'1px 7px',cursor:'pointer',fontFamily:'inherit'},
+                    title:'Click to remove tag',
+                    onClick:function(e){
+                      e.stopPropagation();
+                      var newNotes=(p.notes||'').replace(tag,'').replace(/\s+/g,' ').trim();
+                      var updated=positions.map(function(x){return x.id===p.id?Object.assign({},x,{notes:newNotes}):x;});
+                      updPos(updated);
+                    }},tag);
+                }),
+                h('button',{style:{fontSize:9,background:'none',border:'1px dashed '+C.brd,borderRadius:10,padding:'1px 6px',cursor:'pointer',color:C.muted,fontFamily:'inherit'},
+                  onClick:function(e){
+                    e.stopPropagation();
+                    var tag=prompt('Add tag (e.g. #core, #dividend, #trim):');
+                    if(!tag)return;
+                    var t=tag.startsWith('#')?tag:'#'+tag;
+                    var newNotes=((p.notes||'')+' '+t).trim();
+                    var updated=positions.map(function(x){return x.id===p.id?Object.assign({},x,{notes:newNotes}):x;});
+                    updPos(updated);
+                  }},h('i',{className:'ti ti-tag',style:{fontSize:9}}),' tag')
+              );
+            })()
+          )
         );
       })
     );
@@ -9893,7 +10746,7 @@ function App(){
 
   function TabWatchlist(){
     return h('div',null,
-      secLbl('ti-eye','Watchlist ('+watchlist.length+'/10)',Btn('btn-p',{},function(){setAddingWatch(function(v){return !v;});},false,h(Fragment,null,h('i',{className:'ti ti-plus'}),' Add to watchlist'))),
+      secLbl('ti-eye','Watchlist ('+watchlist.length+')',Btn('btn-p',{},function(){setAddingWatch(function(v){return !v;});},false,h(Fragment,null,h('i',{className:'ti ti-plus'}),' Add to watchlist'))),
       addingWatch?h(AddWatchForm,null):null,
       (watchlist.length===0&&!addingWatch)?emSt('ti-eye','No watchlist stocks'):null,
       watchlist.map(function(w){
@@ -9902,11 +10755,50 @@ function App(){
             h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},h('span',{style:{fontFamily:C.mono,fontWeight:700,fontSize:16,color:C.textB}},w.ticker),tPill(w.type),RatingBadge(w.rec),GradeBadge(w.score,0),finLinks(w.ticker,true)),
             h('div',{style:{display:'flex',gap:6},onClick:function(e){e.stopPropagation();}},
               h('button',{className:'btn btn-p',style:{fontSize:10,padding:'4px 10px'},onClick:function(){alert('Ask your AI:"I want to add '+w.ticker+' at '+dollar(w.price)+' - recommend $500 or $1000 entry size."');}},h('i',{className:'ti ti-arrow-right'}),' Buy ->'),
+              h('button',{className:'btn btn-d',style:{fontSize:9,padding:'4px 8px'},
+                title:'Add price alert for '+w.ticker,
+                onClick:function(e){
+                  e.stopPropagation();
+                  var price=safeLP(livePrices[w.ticker])||w.price||0;
+                  var above=parseFloat((price*1.05).toFixed(2));
+                  var below=parseFloat((price*0.95).toFixed(2));
+                  var newTrig={
+                    id:'t'+Date.now(),ticker:w.ticker,name:w.name||w.ticker,
+                    type:'price_above',threshold:above,
+                    label:w.ticker+' > $'+above,active:true,fired:false,
+                    note:'Added from watchlist. Also consider a below-$'+below+' stop alert.'
+                  };
+                  var updated=(appTriggers||[]).concat([newTrig]);
+                  setAppTriggers(updated);
+                  lsSet('apex_triggers',updated);
+                  alert('Alert added: '+w.ticker+' above $'+above+'. Edit or add more in the Triggers tab.');
+                }},h('i',{className:'ti ti-bell-plus'})),
               h('button',{className:'btn btn-r',style:{padding:'4px 8px'},onClick:function(){updWatch(watchlist.filter(function(x){return x.id!==w.id;}));if(detail&&detail.id===w.id){setDetail(null);}}},h('i',{className:'ti ti-trash'}))
             )
           ),
           w.notes?h('div',{style:{fontSize:10,color:C.muted2,lineHeight:1.4,paddingTop:4,borderTop:'1px solid '+C.brd+'60',marginTop:4,fontStyle:'italic'}},
             h('i',{className:'ti ti-notebook',style:{color:C.blue,marginRight:4,fontSize:9}}),w.notes):null,
+          /* Live price vs target/stop progress bar */
+          (function(){
+            var lp=safeLP(livePrices[w.ticker])||w.price||0;
+            var tgt=w.target||0;
+            var stp=w.stop||0;
+            if(!lp||(!tgt&&!stp))return null;
+            var toTarget=tgt>0?((tgt-lp)/lp*100):null;
+            var toStop=stp>0?((lp-stp)/lp*100):null;
+            var pct=tgt>0&&stp>0?Math.max(0,Math.min(100,(lp-stp)/(tgt-stp)*100)):null;
+            return h('div',{style:{marginTop:6,marginBottom:2}},
+              h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:9,color:C.muted,marginBottom:3}},
+                stp>0?h('span',{style:{color:C.red}},'Stop $'+(+(stp||0)).toFixed(2)+(toStop!==null?' ('+toStop.toFixed(1)+'% below)':'')):null,
+                lp?h('span',{style:{fontFamily:C.mono,fontWeight:700,color:C.textB}},'$'+lp.toFixed(2)):null,
+                tgt>0?h('span',{style:{color:C.green}},(toTarget!==null?(toTarget>0?'+':'')+toTarget.toFixed(1)+'% ':'')+' Target $'+(+(tgt||0)).toFixed(2)):null
+              ),
+              pct!==null?h('div',{style:{height:5,background:C.brd,borderRadius:3,overflow:'hidden',position:'relative'}},
+                h('div',{style:{width:pct+'%',height:'100%',background:pct>70?C.green:pct>35?C.teal:C.warn,borderRadius:3,transition:'width .4s'}}),
+                h('div',{style:{position:'absolute',left:pct+'%',top:0,width:2,height:'100%',background:'#fff',opacity:.8,transform:'translateX(-1px)'}})
+              ):null
+            );
+          })(),
           w.entryTarget&&w.entryTarget>0?h('div',{style:{fontSize:10,color:C.teal,marginTop:2}},
             h('b',null,'Entry target: '),h('span',{style:{fontFamily:C.mono}},'$'+w.entryTarget)):null,
           h('div',{style:{fontSize:12,color:C.muted,marginBottom:8}},w.name),
@@ -10184,7 +11076,7 @@ function App(){
     }
 
     function addPickToWatch(pick){
-      if(watchlist.length>=10){alert('Watchlist full (10 max).');return;}
+      if(watchlist.length>=50){alert('Watchlist full (50 max). Consider removing old entries.');return;}
       if(watchlist.find(function(w){return w.ticker===pick.ticker;})||positions.find(function(p){return p.ticker===pick.ticker;})){
         alert(pick.ticker+' is already tracked.');return;
       }
@@ -10295,7 +11187,20 @@ function App(){
                 h('div',{style:{fontSize:11,color:C.muted}},pick.name)
               ),
               h('div',{style:{textAlign:'right'}},
-                h('div',{style:{fontFamily:C.mono,fontSize:16,fontWeight:700,color:C.textB}},'$'+pick.price.toFixed(2)),
+                h('div',{style:{fontFamily:C.mono,fontSize:16,fontWeight:700,color:C.textB}},
+                  (function(){
+                    var raw=livePrices[pick.ticker];
+                    var lp=raw?+(typeof raw==='object'?(raw.price||raw.close||raw):raw):null;
+                    var dispPx=lp&&!isNaN(lp)?lp:pick.price;
+                    var chgPct=lp&&pick.price>0?(lp-pick.price)/pick.price*100:null;
+                    return h(Fragment,null,
+                      '$'+dispPx.toFixed(2),
+                      lp&&!isNaN(lp)?h('span',{style:{fontSize:9,color:chgPct>=0?C.green:C.red,marginLeft:4,fontFamily:C.mono}},
+                        (chgPct>=0?'+':'')+chgPct.toFixed(1)+'%'):
+                      h('span',{style:{fontSize:9,color:C.muted,marginLeft:4}},'(seed)')
+                    );
+                  })()
+                ),
                 h('div',{style:{fontSize:10,color:C.green}},'Target: $'+pick.target),
                 h('div',{style:{fontSize:10,color:C.red}},'Stop: $'+pick.stop)
               )
@@ -10364,7 +11269,7 @@ function App(){
             )
           ),
           h('div',{style:{textAlign:'right'}},
-            h('div',{style:{fontFamily:C.mono,fontSize:16,fontWeight:700,color:C.textB}},'$'+aiResult.pick.price.toFixed(2)),
+            h('div',{style:{fontFamily:C.mono,fontSize:16,fontWeight:700,color:C.textB}},'$'+(+(aiResult.pick&&aiResult.pick.price||0)).toFixed(2)),
             h('div',{style:{fontSize:11,color:C.green}},'Target: $'+aiResult.pick.target),
             h('div',{style:{fontSize:11,color:C.red}},'Stop: $'+aiResult.pick.stop)
           )
@@ -10421,7 +11326,7 @@ function App(){
                   ),
                   h('span',{style:{fontSize:11,fontFamily:C.mono,color:scColor(item.score)}},item.score)
                 )),
-                h('td',{style:{fontFamily:C.mono}},'$'+item.price.toFixed(2)),
+                h('td',{style:{fontFamily:C.mono}},'$'+(+(item.price||0)).toFixed(2)),
                 h('td',{style:{fontFamily:C.mono,color:item.pnlPct>0?C.green:item.pnlPct<0?C.red:C.muted}},
                   item.source==='position'?(item.pnlPct>=0?'+':'')+item.pnlPct.toFixed(1)+'%':'--'
                 ),
@@ -10505,7 +11410,7 @@ function App(){
     }
 
     function addToWatch(stock){
-      if(watchlist.length>=10){alert('Watchlist full (10 max).');return;}
+      if(watchlist.length>=50){alert('Watchlist full (50 max). Consider removing old entries.');return;}
       if(watchlist.find(function(w){return w.ticker===stock.ticker;})){alert(stock.ticker+' already in watchlist.');return;}
       var nw={id:nid(),ticker:stock.ticker,name:stock.name,type:'stock',price:stock.price,score:stock.score,rec:stock.rec,entry:[+(stock.price*0.97).toFixed(2),+(stock.price*1.02).toFixed(2)],target:+(stock.price*1.25).toFixed(2),stop:+(stock.price*0.85).toFixed(2),political:'UNKNOWN',inst:'NEUTRAL',leg:'NEUTRAL',litRisk:'MEDIUM',polScore:40,instScore:50,legScore:45,techScore:55,newsScore:55,macroScore:50,conf:stock.score/100,drivers:stock.drivers,risks:stock.risks};
       updWatch(watchlist.concat([nw]));alert(stock.ticker+' added to watchlist!');
@@ -10557,7 +11462,7 @@ function App(){
               ),
               h('div',{style:{textAlign:'right'}},
                 h('div',{style:{fontFamily:C.mono,fontSize:16,fontWeight:700,color:C.textB}},
-                  '$'+(fmPrices[stock.ticker]?fmPrices[stock.ticker].price.toFixed(2):stock.price.toFixed(2)),
+                  '$'+(fmPrices[stock.ticker]?fmPrices[stock.ticker].price?( +(+(""+"".concat(0))||0) ).toFixed(2):'0.00':(+(stock.price||0)).toFixed(2)),
                   fmPrices[stock.ticker]?h('span',{style:{fontSize:9,fontFamily:C.mono,color:fmPrices[stock.ticker].chgPct>=0?C.green:C.red,marginLeft:4}},(fmPrices[stock.ticker].chgPct>=0?'+':'')+fmPrices[stock.ticker].chgPct.toFixed(2)+'%'):null
                 ),
                 h('div',{style:{display:'flex',alignItems:'center',gap:4,marginTop:1}},
@@ -10697,7 +11602,7 @@ function App(){
       var change=pd&&pd.usd_24h_change?pd.usd_24h_change:null;
       var mcap=pd&&pd.usd_market_cap?pd.usd_market_cap:null;
       var prompt='You are a cryptocurrency market analyst. Analyze '+coin.name+' ('+coin.sym+') and give a BUY, HOLD, or SELL recommendation.\n\nCURRENT DATA:\nPrice: '+(price?'$'+price.toLocaleString():'Not available')+'\n24hr change: '+(change!=null?(change>=0?'+':'')+change.toFixed(2)+'%':'N/A')+'\nMarket cap: '+(mcap?'$'+(mcap/1e9).toFixed(1)+'B':'N/A')+'\nDate: '+new Date().toLocaleDateString()+'\n\nPlain text response ONLY using EXACTLY this structure:\n\nRATING: [BUY/HOLD/SELL]\nCONFIDENCE: [0-100]%\n30-DAY TARGET: $[amount]\nSTOP LOSS: $[amount]\n\nSUMMARY:\n[2-3 sentences]\n\nMARKET CONDITIONS:\n[Bitcoin cycle, macro environment, fear/greed context]\n\nCONGRESSIONAL & REGULATORY:\n[FIT21 bill, Bitcoin ETF flows, SEC/CFTC posture, executive branch crypto activity]\n\nKEY CATALYSTS:\n[3-4 specific upcoming events: halvings, ETF approvals, protocol upgrades]\n\nRISK FACTORS:\n[3-4 concrete risks]\n\nFINAL VERDICT:\n[1-2 sentences]';
-      callAI(prompt,keys,activeAI,1200).then(function(text){
+      callAI(prompt,keys,activeAI,1200,aiGoals).then(function(text){
         if(!text)throw new Error('Empty response');
         function gv(p){var m=text.match(new RegExp(p+'[:\s]*([^\n]+)','i'));return m?m[1].trim():'';}
         function gs(l,n){var m=text.match(new RegExp(l+'[:\s]*([\s\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
@@ -11055,6 +11960,32 @@ function App(){
     }
 
     /* -- App state -- */
+    /* Custom members added by user */
+    var LS_CUSTOM_MEM='apex_ct_custom_members_v1';
+    var scm=useState(function(){return lsGet(LS_CUSTOM_MEM,[]);}),customMembers=scm[0],setCustomMembers=scm[1];
+    var scmf=useState(false),showAddMember=scmf[0],setShowAddMember=scmf[1];
+    var scmn=useState({name:'',chamber:'House',party:'R',state:'TX',committee:''}),newMember=scmn[0],setNewMember=scmn[1];
+    /* All members = seed + custom */
+    var ALL_MEMBERS_FULL=ALL_MEMBERS.concat(customMembers);
+
+    function addCustomMember(){
+      if(!newMember.name.trim())return;
+      var m=Object.assign({},newMember,{
+        id:'custom_'+Date.now(),avatar:newMember.name.split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase(),
+        custom:true
+      });
+      var updated=customMembers.concat([m]);
+      setCustomMembers(updated);
+      lsSet(LS_CUSTOM_MEM,updated);
+      setNewMember({name:'',chamber:'House',party:'R',state:'TX',committee:''});
+      setShowAddMember(false);
+    }
+    function removeCustomMember(id){
+      var updated=customMembers.filter(function(m){return m.id!==id;});
+      setCustomMembers(updated);
+      lsSet(LS_CUSTOM_MEM,updated);
+    }
+
     /* Live data state */
     var slive=useState([]),liveTradesData=slive[0],setLiveTradesData=slive[1];
     var slfetch=useState(false),fetchingLive=slfetch[0],setFetchingLive=slfetch[1];
@@ -11077,7 +12008,7 @@ function App(){
       setFetchingLive(true);setLiveErr('');
       /* Try House Stock Watcher API first (CORS-enabled, free, no key) */
       var houseUrl='https://housestockwatcher.com/api';
-      fetch(houseUrl,{cache:'no-store'}).then(function(r){
+      corsFetch(houseUrl).then(function(r){
         if(!r.ok)throw new Error('HTTP '+r.status);
         return r.json();
       }).then(function(data){
@@ -11297,8 +12228,38 @@ function App(){
         h('div',{className:'card'},
           h('div',{style:{fontSize:11,fontWeight:700,color:C.textB,marginBottom:8}},
             h('i',{className:'ti ti-users',style:{color:C.blue,marginRight:6}}),'Top buyers by member (all tracked trades)'),
+          /* Custom members list */
+          customMembers.length>0?h('div',{style:{display:'flex',gap:4,flexWrap:'wrap',marginBottom:6}},
+            h('span',{style:{fontSize:10,color:C.muted,alignSelf:'center'}},'Custom:'),
+            customMembers.map(function(m){
+              return h('span',{key:m.id,style:{fontSize:10,background:C.purple+'15',color:C.purple,border:'1px solid '+C.purple+'30',borderRadius:3,padding:'2px 7px',display:'flex',alignItems:'center',gap:4}},
+                m.name,' ',
+                h('button',{style:{background:'none',border:'none',cursor:'pointer',color:C.red,padding:0,fontSize:11,lineHeight:1},
+                  onClick:function(){removeCustomMember(m.id);}},h('i',{className:'ti ti-x'}))
+              );
+            })
+          ):null,
+          /* Add Member form */
+          showAddMember?h('div',{style:{background:C.surf2,border:'1px solid '+C.brd,borderRadius:6,padding:'12px 14px',marginBottom:10}},
+            h('div',{style:{fontSize:12,fontWeight:700,color:C.textB,marginBottom:8}},h('i',{className:'ti ti-user-plus',style:{color:C.purple,marginRight:5}}),'Add Congress Member'),
+            h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6,marginBottom:8}},
+              h('input',{className:'finp',placeholder:'Full Name (e.g. Jane Smith)',autoComplete:'off',
+                value:newMember.name,onChange:function(e){setNewMember(function(p){return Object.assign({},p,{name:e.target.value});});}}),
+              h('select',{className:'finp',value:newMember.chamber,onChange:function(e){setNewMember(function(p){return Object.assign({},p,{chamber:e.target.value});});}},
+                h('option',{value:'House'},'House'),h('option',{value:'Senate'},'Senate')),
+              h('select',{className:'finp',value:newMember.party,onChange:function(e){setNewMember(function(p){return Object.assign({},p,{party:e.target.value});});}},
+                h('option',{value:'R'},'Republican'),h('option',{value:'D'},'Democrat'),h('option',{value:'I'},'Independent')),
+              h('input',{className:'finp',placeholder:'State (e.g. TX)',maxLength:2,autoComplete:'off',
+                value:newMember.state,onChange:function(e){setNewMember(function(p){return Object.assign({},p,{state:e.target.value.toUpperCase()});});}}),
+              h('input',{className:'finp',placeholder:'Committee (e.g. Armed Services)',autoComplete:'off',
+                value:newMember.committee,onChange:function(e){setNewMember(function(p){return Object.assign({},p,{committee:e.target.value});});}}),
+              h('button',{className:'btn btn-p',onClick:addCustomMember,disabled:!newMember.name.trim()},
+                h('i',{className:'ti ti-check'}),' Add')
+            ),
+            h('div',{style:{fontSize:10,color:C.muted}},'Added members are saved locally. Their trades will appear in live data once fetched.')
+          ):null,
           h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
-            ALL_MEMBERS.map(function(m){
+            ALL_MEMBERS_FULL.map(function(m){
               var mTrades=ACTIVE_TRADES.filter(function(t){return t.memberId===m.id;});
               var mBuys=mTrades.filter(function(t){return t.type==='Purchase';}).length;
               if(mBuys===0)return null;
@@ -12464,6 +13425,30 @@ function App(){
           {ticker:'WMT',name:'Walmart',target:68,downside:'-12%',rating:'Underweight',thesis:'Valuation stretched at 30x forward earnings for a grocer. E-commerce profitability still uncertain.',congress:'Retail sector net trimming',cat:'Retail'},
         ]
       },
+      {
+        id:'schwab',
+        name:'Charles Schwab Investment Advisory',
+        shortName:'Schwab',
+        color:'#00A0B0',
+        icon:'ti-building-bank',
+        description:'Retail brokerage and investment advisory. Schwab Equity Ratings cover 3,000+ stocks using a quantitative model scoring A (Strong Buy) through F (Strong Sell).',
+        aum:'$9.4T client assets',
+        apiName:'Schwab API',
+        apiUrl:'https://developer.schwab.com',
+        buys:[
+          {ticker:'NVDA',name:'Nvidia',      change:'+18%',rating:'A (Strong Buy)',thesis:'AI infrastructure dominance; Blackwell supercycle driving sustained outperformance.',congress:'NET BUY',cat:'Technology'},
+          {ticker:'META',name:'Meta',        change:'+22%',rating:'A (Strong Buy)',thesis:'Advertising recovery, AI integration into Reels and WhatsApp, Reality Labs approaching breakeven.',congress:'NET BUY',cat:'Technology'},
+          {ticker:'JPM', name:'JPMorgan',    change:'+12%',rating:'A (Strong Buy)',thesis:'Best-in-class bank. Net interest income resilient; investment banking fees recovering strongly.',congress:'NET BUY',cat:'Financials'},
+          {ticker:'UNH', name:'UnitedHealth',change:'+8%', rating:'A (Strong Buy)',thesis:'Managed care leader with diversified Optum platform. Earnings dip is temporary; long-term thesis intact.',congress:'NEUTRAL',cat:'Healthcare'},
+          {ticker:'AMZN',name:'Amazon',      change:'+19%',rating:'A (Strong Buy)',thesis:'AWS growth re-accelerating; advertising segment now $50B+; retail margins expanding.',congress:'NET BUY',cat:'Technology'},
+          {ticker:'AVGO',name:'Broadcom',    change:'+14%',rating:'A (Strong Buy)',thesis:'Custom AI chip (XPU) franchise expanding; VMware integration on track; dividend growth story.',congress:'NEUTRAL',cat:'Semiconductors'},
+        ],
+        sells:[
+          {ticker:'PFE', name:'Pfizer',      change:'-12%',rating:'D (Underperform)',thesis:'Post-COVID revenue cliff. Oncology pipeline uncertain; dividend sustainability questioned.',congress:'NET SELL',cat:'Pharma'},
+          {ticker:'WBA', name:'Walgreens',   change:'-28%',rating:'F (Strong Sell)', thesis:'Pharmacy reimbursement pressure, store closures, dividend cut. Secular decline.',congress:'NEUTRAL',cat:'Retail'},
+          {ticker:'V',   name:'Verizon',     change:'-8%', rating:'C (Neutral)',     thesis:'Debt load from spectrum auctions limits growth. Subscriber growth below peers.',congress:'NEUTRAL',cat:'Telecom'},
+        ]
+      },
     ];
 
     /* -- State ------------------------------------------------------ */
@@ -12522,7 +13507,7 @@ function App(){
         +'ENTRY STRATEGY:\\n[For a retail investor with $500-$1,000 increments: how and when to enter?]\\n\\n'
         +'RISK/REWARD:\\n[Is the '+stock.upside+' upside or '+stock.downside+' downside target realistic? What are the key milestones?]\\n\\n'
         +'FINAL VERDICT:\\n[Do you agree with '+firm.shortName+'? Should a retail investor follow this call right now?]';
-      callAI(prompt,keys,activeAI,1200).then(function(text){
+      callAI(prompt,keys,activeAI,1200,aiGoals).then(function(text){
         if(!text)throw new Error('Empty response');
         function gv(p){var m=text.match(new RegExp(p+'[:\\s]*([^\\n]+)','i'));return m?m[1].trim():'';}
         function gs(l,n){var m=text.match(new RegExp(l+'[:\\s]*([\\s\\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
@@ -12921,7 +13906,7 @@ function App(){
         +'RISK FACTORS:\n[3 specific risks to this fund right now.]\n\n'
         +'HOW MUCH TO ALLOCATE:\n[For a $10,000 portfolio, $50,000 portfolio, and $100,000 portfolio: how much to put here?]\n\n'
         +'FINAL VERDICT:\n[One sentence: buy now, wait, or avoid and why.]';
-      callAI(prompt,keys,activeAI,1200).then(function(text){
+      callAI(prompt,keys,activeAI,1200,aiGoals).then(function(text){
         if(!text)throw new Error('Empty response');
         function gs(l,n){var m=text.match(new RegExp(l+'[:\\s]*([\\s\\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
         function gv(l){var m=text.match(new RegExp(l+'[:\\s]*([^\\n]+)','i'));return m?m[1].trim():'';}
@@ -13160,7 +14145,31 @@ function App(){
     var sa=useState(null), aiResult=sa[0], setAiResult=sa[1];
     var sl=useState(false), aiLoad=sl[0], setAiLoad=sl[1];
     var sm=useState(''), aiMsg=sm[0], setAiMsg=sm[1];
-    var st=useState('calc'), optTab=st[0], setOptTab=st[1];
+    var st=useState('chain'), optTab=st[0], setOptTab=st[1];
+    /* Options Chain state */
+    var soc=useState(''),chainTicker=soc[0],setChainTicker=soc[1];
+    var socl=useState(false),chainLoading=socl[0],setChainLoading=socl[1];
+    var socd=useState(null),chainData=socd[0],setChainData=socd[1];
+    var soce=useState(''),chainErr=soce[0],setChainErr=soce[1];
+    var socp=useState('calls'),chainSide=socp[0],setChainSide=socp[1];
+    var socx=useState(0),chainExpIdx=socx[0],setChainExpIdx=socx[1];
+
+    function fetchChain(sym){
+      var t=(sym||chainTicker).trim().toUpperCase();
+      if(!t)return;
+      setChainLoading(true);setChainErr('');setChainData(null);
+      var url='https://query2.finance.yahoo.com/v7/finance/options/'+encodeURIComponent(normalizeYahooTicker(t));
+      corsFetch(url).then(function(data){
+        var r=data&&data.optionChain&&data.optionChain.result&&data.optionChain.result[0];
+        if(!r)throw new Error('No options data for '+t+'. Check the ticker.');
+        setChainData(r);
+        setChainExpIdx(0);
+        setChainLoading(false);
+      }).catch(function(e){
+        setChainErr('Could not load options for '+t+'. '+e.message);
+        setChainLoading(false);
+      });
+    }
 
     // Calculator state
     var ssp=useState(100),  stockPrice=ssp[0],  setStockPrice=ssp[1];
@@ -13197,7 +14206,7 @@ function App(){
         +'PROFIT/LOSS SCENARIOS:\n[Show 3 scenarios: stock up 10%, flat, down 10%.]\n\n'
         +'COMMON MISTAKES:\n[Top 3 mistakes beginners make with this strategy.]\n\n'
         +'FINAL TIP:\n[One sentence of key advice for a retail investor using this strategy.]';
-      callAI(prompt,keys,activeAI,1200).then(function(text){
+      callAI(prompt,keys,activeAI,1200,aiGoals).then(function(text){
         if(!text)throw new Error('Empty response');
         function gs(l,n){var m=text.match(new RegExp(l+'[:\\s]*([\\s\\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
         setAiResult({
@@ -13233,8 +14242,8 @@ function App(){
           hasAK?h('div',{style:{marginLeft:'auto'}},aiBadge(activeAI)):null
         ),
         h('div',{style:{display:'flex',gap:6}},
-          ['calc','strategies','greeks','recs'].map(function(t){
-            var labels={calc:'Options Calculator',strategies:'Strategy Guide',greeks:'Greeks Explained',recs:'AI Recommendations'};
+          ['chain','calc','strategies','greeks','recs'].map(function(t){
+            var labels={chain:'Live Options Chain',calc:'Options Calculator',strategies:'Strategy Guide',greeks:'Greeks Explained',recs:'AI Recommendations'};
             return h('button',{key:t,className:'tgl'+(optTab===t?' on':''),style:{fontSize:10,padding:'5px 12px'},
               onClick:function(){setOptTab(t);}},labels[t]);
           })
@@ -13242,6 +14251,120 @@ function App(){
       ),
 
       /* -- CALCULATOR -- */
+      optTab==='chain'?h('div',null,
+        /* Ticker search */
+        h('div',{className:'card',style:{marginBottom:14}},
+          h('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:8}},
+            h('div',{style:{fontFamily:C.mono,fontWeight:700,fontSize:13,color:C.textB}},'Live Options Chain'),
+            h('div',{style:{fontSize:11,color:C.muted}},'Free via Yahoo Finance -- real strikes, expirations, bid/ask, IV, OI')
+          ),
+          h('div',{style:{display:'flex',gap:6}},
+            h('input',{type:'text',className:'finp',autoComplete:'off',
+              value:chainTicker,style:{flex:1,textTransform:'uppercase'},
+              placeholder:'Enter ticker (NVDA, AAPL, SPY...)',
+              onChange:function(e){setChainTicker(e.target.value.toUpperCase());},
+              onKeyDown:function(e){if(e.key==='Enter')fetchChain();}}),
+            positions.length>0?h('select',{className:'finp',style:{width:120},
+              onChange:function(e){if(e.target.value){setChainTicker(e.target.value);fetchChain(e.target.value);}},
+              defaultValue:''},
+              h('option',{value:''},'My positions'),
+              positions.map(function(p){return h('option',{key:p.id,value:p.ticker},p.ticker);})):null,
+            h('button',{className:'btn btn-p',onClick:function(){fetchChain();},disabled:chainLoading||!chainTicker.trim()},
+              chainLoading?h('span',{className:'sp'}):h('i',{className:'ti ti-download'}),' Load Chain')
+          ),
+          chainErr?h('div',{style:{fontSize:11,color:C.red,marginTop:6}},chainErr):null
+        ),
+
+        /* Chain display */
+        chainData?h('div',null,
+          /* Underlying info */
+          h('div',{style:{display:'flex',gap:10,alignItems:'center',marginBottom:10,flexWrap:'wrap'}},
+            h('div',{style:{fontFamily:C.mono,fontWeight:700,fontSize:18,color:C.textB}},
+              chainData.underlyingSymbol,' $'+(+(chainData.quote&&chainData.quote.regularMarketPrice||0)).toFixed(2)),
+            chainData.quote?h('span',{style:{fontSize:12,color:chainData.quote.regularMarketChangePercent>=0?C.green:C.red,fontFamily:C.mono}},
+              (chainData.quote.regularMarketChangePercent>=0?'+':'')+
+              (+(chainData.quote.regularMarketChangePercent||0)).toFixed(2)+'%'):null,
+            /* Expiration selector */
+            chainData.expirationDates&&chainData.expirationDates.length>0?
+              h('select',{className:'finp',style:{marginLeft:'auto',width:160},
+                value:chainExpIdx,
+                onChange:function(e){setChainExpIdx(+e.target.value);}},
+                chainData.expirationDates.map(function(ts,i){
+                  var d=new Date(ts*1000);
+                  var diff=Math.round((d-new Date())/(1000*60*60*24));
+                  return h('option',{key:ts,value:i},
+                    d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+
+                    ' ('+diff+'d)');
+                })
+              ):null,
+            /* Calls/Puts toggle */
+            h('div',{style:{display:'flex',gap:0,border:'1px solid '+C.brd,borderRadius:4,overflow:'hidden'}},
+              ['calls','puts'].map(function(side){
+                return h('button',{key:side,style:{padding:'5px 14px',fontSize:11,background:chainSide===side?C.blue:'transparent',color:chainSide===side?'#fff':C.muted,border:'none',cursor:'pointer',fontFamily:'inherit'},
+                  onClick:function(){setChainSide(side);}},side.toUpperCase());
+              })
+            )
+          ),
+
+          /* Options table */
+          (function(){
+            var exp=chainData.expirationDates&&chainData.expirationDates[chainExpIdx];
+            var optList=chainData.options&&chainData.options[chainExpIdx];
+            if(!optList)return h('div',{style:{color:C.muted,textAlign:'center',padding:16}},'Loading expiration...');
+            var contracts=(chainSide==='calls'?optList.calls:optList.puts)||[];
+            var spot=chainData.quote&&chainData.quote.regularMarketPrice||0;
+            if(!contracts.length)return h('div',{style:{color:C.muted,textAlign:'center',padding:16}},'No '+chainSide+' found for this expiration.');
+            return h('div',{style:{overflowX:'auto'}},
+              h('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:10}},
+                h('thead',null,
+                  h('tr',{style:{background:C.surf2}},
+                    ['Strike','Last','Bid','Ask','Change','IV','Volume','OI','ITM'].map(function(col){
+                      return h('th',{key:col,style:{padding:'6px 8px',textAlign:'right',color:C.muted,fontWeight:600,whiteSpace:'nowrap',
+                        borderBottom:'1px solid '+C.brd}},col);
+                    })
+                  )
+                ),
+                h('tbody',null,
+                  contracts.map(function(c){
+                    var itm=chainSide==='calls'?spot>c.strike:spot<c.strike;
+                    var chgPct=c.percentChange||0;
+                    var iv=(c.impliedVolatility||0)*100;
+                    return h('tr',{key:c.contractSymbol,
+                      style:{background:itm?C.blue+'08':C.surf,borderBottom:'1px solid '+C.brd+'40',cursor:'pointer'},
+                      onClick:function(){
+                        /* Pre-fill calculator with this contract */
+                        setOptTab('calc');
+                      }},
+                      h('td',{style:{padding:'5px 8px',textAlign:'right',fontFamily:C.mono,fontWeight:700,
+                        color:itm?C.blue:C.textB}},
+                        '$'+(+(c.strike||0)).toFixed(2),
+                        itm?h('span',{style:{fontSize:8,color:C.blue,marginLeft:3}},'ITM'):null),
+                      h('td',{style:{padding:'5px 8px',textAlign:'right',fontFamily:C.mono,color:C.textB}},'$'+(+(c.lastPrice||0)).toFixed(2)),
+                      h('td',{style:{padding:'5px 8px',textAlign:'right',fontFamily:C.mono,color:C.muted}},'$'+(+(c.bid||0)).toFixed(2)),
+                      h('td',{style:{padding:'5px 8px',textAlign:'right',fontFamily:C.mono,color:C.muted}},'$'+(+(c.ask||0)).toFixed(2)),
+                      h('td',{style:{padding:'5px 8px',textAlign:'right',fontFamily:C.mono,
+                        color:chgPct>=0?C.green:C.red}},
+                        (chgPct>=0?'+':'')+chgPct.toFixed(1)+'%'),
+                      h('td',{style:{padding:'5px 8px',textAlign:'right',fontFamily:C.mono,color:C.muted}},iv.toFixed(1)+'%'),
+                      h('td',{style:{padding:'5px 8px',textAlign:'right',fontFamily:C.mono,color:C.muted}},(c.volume||0).toLocaleString()),
+                      h('td',{style:{padding:'5px 8px',textAlign:'right',fontFamily:C.mono,color:C.muted}},(c.openInterest||0).toLocaleString()),
+                      h('td',{style:{padding:'5px 8px',textAlign:'center'}},
+                        itm?h('span',{style:{fontSize:9,background:C.blue+'18',color:C.blue,border:'1px solid '+C.blue+'30',padding:'1px 4px',borderRadius:2}},'ITM'):null)
+                    );
+                  })
+                )
+              )
+            );
+          })()
+        ):chainLoading?h('div',{style:{textAlign:'center',padding:24}},
+          h('div',{style:{width:32,height:32,border:'3px solid '+C.brd,borderTopColor:C.blue,borderRadius:'50%',animation:'spin .8s linear infinite',margin:'0 auto 10px'}}),
+          h('div',{style:{fontSize:12,color:C.muted}},'Fetching options chain...')
+        ):h('div',{style:{textAlign:'center',padding:28,color:C.muted}},
+          h('i',{className:'ti ti-chart-candle',style:{fontSize:32,display:'block',marginBottom:8}}),
+          'Enter any ticker and click Load Chain.',h('br',null),
+          'Free data via Yahoo Finance -- no API key needed.'
+        )
+      ):
       optTab==='calc'?h('div',null,
         h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}},
           h('div',{className:'card',style:{marginBottom:0}},
@@ -13455,7 +14578,7 @@ function App(){
                 setAiResult(null);setAiLoad(true);
                 setAiMsg('Getting '+btn.label+' recommendations...');
                 var port=positions.length>0
-                  ?'My positions: '+positions.map(function(p){return p.ticker+'($'+p.avgCost.toFixed(0)+', '+p.shares+'sh)';}).join(', ')
+                  ?'My positions: '+positions.map(function(p){return p.ticker+'($'+(+(p.avgCost||0)).toFixed(0)+', '+p.shares+'sh)';}).join(', ')
                   :'No positions yet.';
                 var watch=watchlist.length>0
                   ?'My watchlist: '+watchlist.map(function(w){return w.ticker;}).join(', ')
@@ -14687,7 +15810,7 @@ function App(){
         +'INSURANCE GAPS:\n[Life insurance, long-term care, disability. What coverage is needed at this stage?]\n\n'
         +'TOP 5 ACTION ITEMS:\n[Numbered list. The 5 most important things to do in the next 12 months.]\n\n'
         +'FINAL VERDICT:\n[One paragraph summary -- what is the most critical thing for this person to focus on right now?]';
-      callAI(prompt,keys,activeAI,2000).then(function(text){
+      callAI(prompt,keys,activeAI,2000,aiGoals).then(function(text){
         if(!text)throw new Error('Empty response');
         function gs(l,n){var m=text.match(new RegExp(l+'[:\\s]*([\\s\\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
         setAiResult({
@@ -15052,11 +16175,11 @@ function App(){
     function runAI(res){
       if(!hasAK){setAiMsg('ERROR: No AI key. Add OpenAI or Gemini in Settings.');return;}
       setAiLoad(true);setAiMsg('Running AI forecast analysis...');
-      var forecastPrices=res.forecast.map(function(f){return '$'+f.price.toFixed(2);}).join(', ');
+      var forecastPrices=res.forecast.map(function(f){return '$'+f.price?( +(+(""+"".concat(0))||0) ).toFixed(2):'0.00';}).join(', ');
       var prompt='You are a quantitative analyst. Analyze this price series data and provide a detailed forecast.\n\n'
         +'TICKER: '+(tickerInput||'Custom series')+'\n'
         +'DATA POINTS: '+res.n+' price observations\n'
-        +'FIRST PRICE: $'+res.prices[0].toFixed(2)+'\n'
+        +'FIRST PRICE: $'+(res.prices&&res.prices[0]?res.prices[0].toFixed(2):'N/A')+'\n'
         +'CURRENT PRICE: $'+res.current.toFixed(2)+'\n'
         +'TOTAL CHANGE: '+(res.pctChange>=0?'+':'')+res.pctChange.toFixed(1)+'%\n'
         +'TREND: '+res.trendStr+' (regression slope: '+res.reg.slope.toFixed(4)+')\n'
@@ -15257,7 +16380,7 @@ function App(){
               var vs=((f.price-result.current)/result.current*100);
               return h('tr',{key:f.day},
                 h('td',{style:{fontFamily:C.mono,color:C.muted}},'Day '+f.day),
-                h('td',{style:{fontFamily:C.mono,fontWeight:700,color:C.textB}},'$'+f.price.toFixed(2)),
+                h('td',{style:{fontFamily:C.mono,fontWeight:700,color:C.textB}},'$'+f.price?( +(+(""+"".concat(0))||0) ).toFixed(2):'0.00'),
                 h('td',{style:{fontFamily:C.mono,color:C.green}},'$'+f.upper.toFixed(2)),
                 h('td',{style:{fontFamily:C.mono,color:C.red}},'$'+f.lower.toFixed(2)),
                 h('td',{style:{fontFamily:C.mono,color:vs>=0?C.green:C.red}},(vs>=0?'+':'')+vs.toFixed(1)+'%')
@@ -15877,9 +17000,9 @@ function App(){
       setAiLoad(true); setAiMsg('Getting AI trigger suggestions...');
       var port=positions.map(function(p){
         var pnlPct=p.avgCost>0?(p.price-p.avgCost)/p.avgCost*100:0;
-        return p.ticker+': $'+p.price.toFixed(2)+' target $'+(p.target||0).toFixed(2)+' stop $'+(p.stop||0).toFixed(2)+' P&L '+(pnlPct>=0?'+':'')+pnlPct.toFixed(1)+'% score:'+p.score;
+        return p.ticker+': $'+(+(p.price||0)).toFixed(2)+' target $'+(p.target||0).toFixed(2)+' stop $'+(p.stop||0).toFixed(2)+' P&L '+(pnlPct>=0?'+':'')+pnlPct.toFixed(1)+'% score:'+p.score;
       }).join('\n');
-      var watch=watchlist.map(function(w){return w.ticker+': $'+w.price.toFixed(2)+' target $'+(w.target||0).toFixed(2)+' stop $'+(w.stop||0).toFixed(2);}).join('\n');
+      var watch=watchlist.map(function(w){return w.ticker+': $'+w.price?( +(+(""+"".concat(0))||0) ).toFixed(2):'0.00'+' target $'+(w.target||0).toFixed(2)+' stop $'+(w.stop||0).toFixed(2);}).join('\n');
       var prompt='You are a portfolio risk manager. Review this portfolio and suggest specific alert triggers.\n\n'
         +'POSITIONS:\n'+port+'\n\nWATCHLIST:\n'+(watch||'none')+'\n\n'
         +'Plain text. EXACTLY this structure:\n\n'
@@ -15889,7 +17012,7 @@ function App(){
         +'CONGRESSIONAL WATCH TRIGGERS:\n[Which tickers should be watched for congressional trading signals?]\n\n'
         +'GRADE DECLINE ALERTS:\n[Set alerts for which stocks might see grade deterioration?]\n\n'
         +'OVERALL RISK ASSESSMENT:\n[Portfolio vulnerability summary. Top 3 risks that need trigger coverage now.]';
-      callAI(prompt,keys,activeAI,1200).then(function(text){
+      callAI(prompt,keys,activeAI,1200,aiGoals).then(function(text){
         if(!text)throw new Error('Empty response');
         function gs(l,n){var m=text.match(new RegExp(l+'[:\\s]*([\\s\\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
         setAiSug({
@@ -15957,6 +17080,11 @@ function App(){
           ].map(function(x){return h('div',{key:x[0],className:'met'},h('div',{className:'met-l'},x[0]),h('div',{className:'met-v',style:{color:x[2]}},x[1]));})
         ),
         h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+          h('button',{className:'btn '+(notifEnabled?'btn-teal':'btn-d'),
+            style:{fontSize:10},title:notifEnabled?'Browser notifications ON':'Enable browser notifications for alerts',
+            onClick:function(){notifEnabled?setNotifEnabled(false):requestNotifPermission();}},
+            h('i',{className:'ti '+(notifEnabled?'ti-bell-ringing':'ti-bell-off')}),
+            notifEnabled?' Alerts: ON':' Enable Notifications'),
           h('button',{className:'btn btn-gold',onClick:function(){setAdding(true);},disabled:adding},h('i',{className:'ti ti-plus'}),' Add Trigger'),
           h('button',{className:'btn btn-p',onClick:checkNow,disabled:checking||activeCt===0},
             checking?h('span',{className:'sp'}):h('i',{className:'ti ti-refresh'}),' ',checking?'Checking...':'Check All Now'),
@@ -16124,6 +17252,9 @@ function App(){
     var st5=useState(false),loading=st5[0],setLoading=st5[1];
     var st6=useState(null),result=st6[0],setResult=st6[1];
     var st7=useState([]),history=st7[0],setHistory=st7[1];
+    var stfq=useState(''),followupQ=stfq[0],setFollowupQ=stfq[1];
+    var stfl=useState(false),followupLoading=stfl[0],setFollowupLoading=stfl[1];
+    var stfr=useState(''),followupResp=stfr[0],setFollowupResp=stfr[1];
     var st8=useState(''),statusMsg=st8[0],setStatusMsg=st8[1];
     /* Best Buy Now state */
     var sbb1=useState(null),bbResult=sbb1[0],setBbResult=sbb1[1];
@@ -16186,7 +17317,7 @@ function App(){
         '  "rec5000": {"ticker":"XXX","name":"Company Name","price":000.00,"t1w":"$000","t1m":"$000","t3m":"$000","t1y":"$000","rationale":"rationale","budgetNote":"note for $5000","risk":"risk"}\n'+
         '}\n'+
         'Price targets must be specific dollar amounts (e.g. "$138.50"). All 4 tickers must be different.';
-      callAI(prompt,keys,activeAI,1200).then(function(rawText){
+      callAI(prompt,keys,activeAI,1200,aiGoals).then(function(rawText){
         if(!rawText)throw new Error('Empty response from AI');
         /* Strip any markdown fences */
         var cleaned=rawText.replace(/```json|```/g,'').trim();
@@ -16221,6 +17352,21 @@ function App(){
       );
     }
 
+    function askFollowup(){
+      if(!followupQ.trim()||!result)return;
+      setFollowupLoading(true);setFollowupResp('');
+      var ctx='Previous analysis for '+result.ticker+' ('+result.rec+', '+result.confidence+'% confidence):\n'+
+        result.rawText+
+        '\n\nUser follow-up question: '+followupQ;
+      callAI(ctx,keys,activeAI,1000,aiGoals).then(function(text){
+        setFollowupResp(text||'No response.');
+        setFollowupLoading(false);
+      }).catch(function(e){
+        setFollowupResp('Error: '+e.message);
+        setFollowupLoading(false);
+      });
+    }
+
     function run(){
       var t=ticker.trim().toUpperCase();
       if(!t){alert('Enter a ticker symbol.');return;}
@@ -16245,7 +17391,7 @@ function App(){
         var ownedInfo=(shares&&cost)?'I own '+shares+' shares at $'+cost+' avg.':'I do not own this stock.';
         var portfolio=positions.length>0?'Portfolio: '+positions.map(function(p){return p.ticker+'('+p.shares+'@$'+p.avgCost+')';}).join(', ')+'.':'No other positions.';
         var prompt='You are an institutional stock analyst. Give a BUY, SELL, or HOLD recommendation.\n\nSTOCK: '+t+' ('+(advType==='mutual'?'Mutual Fund':'Stock')+')\nLIVE PRICE: '+(livePrice?'$'+livePrice.toFixed(2)+' ('+(pd.tradingDay||'today')+', '+(pd.source||'API')+')':'Not available')+(pd?'\nTODAY: H $'+(pd.high||0).toFixed(2)+' L $'+(pd.low||0).toFixed(2)+' Vol '+(pd.volume||0).toLocaleString()+'\nCHANGE: '+(pd.change>=0?'+':'-')+'$'+Math.abs(pd.change||0).toFixed(2)+' ('+(pd.changePct||0).toFixed(2)+'%)'  :'')+'\nINVESTOR: '+ownedInfo+' '+portfolio+' Moderate risk. $500-$1,000 increments. 100-share goal.\n\nRespond in PLAIN TEXT ONLY with EXACTLY this structure:\n\nRECOMMENDATION: [BUY/SELL/HOLD]\nCONFIDENCE: [0-100]%\nPRICE TARGET (30 days): $[amount]\nSTOP LOSS: $[amount]\nENTRY RANGE: $[low] - $[high]\n\nSUMMARY:\n[2-3 sentences]\n\nCONGRESSIONAL & POLITICAL SIGNALS:\n[Specific congressional trading.]\n\nCURRENT EVENTS & CATALYSTS:\n[3-5 specific dated events.]\n\nINSTITUTIONAL ACTIVITY:\n[13F changes, analyst ratings.]\n\nLEGISLATION & REGULATORY RISK:\n[Pending bills, agency actions.]\n\nTECHNICAL PICTURE:\n[RSI, trend, support/resistance.]\n\nRISK FACTORS:\n[3-5 concrete risks.]\n\n'+(shares&&cost?'POSITION-SPECIFIC ADVICE:\n[I own '+shares+' shares at $'+cost+'. Add, trim, or hold?]':'FIRST ENTRY ADVICE:\n[First entry for $500 or $1,000.]')+'\n\nFINAL VERDICT:\n[1-2 sentences - the most important reason for your call]';
-        return callAI(prompt,keys,activeAI,1800).then(function(text){
+        return callAI(prompt,keys,activeAI,1800,aiGoals).then(function(text){
           if(!text){throw new Error('Empty response from AI');}
           function get(l,n){var m=text.match(new RegExp(l+'[:\s]*([\s\S]*?)(?='+n+'|$)','i'));return m?m[1].trim():'';}
           var parsed={
@@ -16287,8 +17433,13 @@ function App(){
         h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:12}},
           h('div',{style:{width:36,height:36,background:'rgba(77,158,255,.15)',border:'1px solid rgba(77,158,255,.35)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},h('i',{className:'ti ti-message-chatbot',style:{fontSize:18,color:C.blue}})),
           h('div',null,h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'AI Stock Advisor'),h('div',{style:{fontSize:11,color:C.muted}},'Enter ticker -> live price -> full BUY/SELL/HOLD report')),
-          hasAK?h('div',{style:{marginLeft:'auto'}},aiBadge(activeAI)):null
+          h('button',{className:'btn btn-d',style:{fontSize:10,marginLeft:'auto'},
+          onClick:fetchLiveEarningsDates,disabled:fetchingDates},
+          fetchingDates?h('span',{className:'sp'}):h('i',{className:'ti ti-calendar-search'}),
+          ' Refresh Dates'),
+        hasAK?h('div',null,aiBadge(activeAI)):null
         ),
+        fetchMsg?h('div',{style:{fontSize:10,color:fetchingDates?C.warn:C.teal,marginTop:4,marginBottom:4}},fetchMsg):null,
         !hasAK?h('div',{className:'banner bw'},h('i',{className:'ti ti-alert-circle'}),' No AI key configured.',Btn('btn-gold',{marginLeft:'auto',fontSize:10,padding:'4px 10px'},function(){setTab('settings');},false,'Add in Settings ->')):null,
         priceErr?h('div',{style:{background:'rgba(245,160,32,.1)',border:'1px solid rgba(245,160,32,.3)',borderRadius:4,padding:'6px 10px',fontSize:11,color:C.warn,marginBottom:10}},priceErr):null,
         h('div',{style:{display:'flex',gap:5,marginBottom:12}},
@@ -16297,7 +17448,7 @@ function App(){
         ),
         h('div',{style:{display:'grid',gridTemplateColumns:'2fr 1fr 1fr',gap:10,marginBottom:10}},
           FG('Ticker symbol *',h('div',{style:{display:'flex',gap:6,alignItems:'center'}},
-            Inp({value:ticker,onChange:function(e){setTicker(e.target.value.toUpperCase());},placeholder:advType==='mutual'?'e.g. VFIAX':'e.g. AAPL, NVDA',style:{textTransform:'uppercase',fontSize:14,fontFamily:C.mono},onKeyDown:function(e){if(e.key==='Enter'&&!loading){run();}}}),
+            Inp({value:ticker,onChange:function(e){setTicker(e.target.value.toUpperCase());},placeholder:advType==='mutual'?'e.g. VFIAX, SWPPX':'Any ticker -- AAPL, NVDA, PLTR, BA...',style:{textTransform:'uppercase',fontSize:14,fontFamily:C.mono},onKeyDown:function(e){if(e.key==='Enter'&&!loading){run();}}}),
             ticker.trim()?finLinks(ticker.trim(),false):null
           )),
           FG('Shares owned',Inp({type:'number',value:shares,onChange:function(e){setShares(e.target.value);},placeholder:'0'})),
@@ -16308,6 +17459,31 @@ function App(){
         ),
         (statusMsg&&!loading)?h('div',{style:{marginTop:10,fontSize:12,color:'#FF4545',padding:'10px 14px',background:'rgba(255,69,69,.12)',border:'1px solid rgba(255,69,69,.4)',borderRadius:5,lineHeight:1.5}},h('i',{className:'ti ti-alert-circle',style:{marginRight:6}}),statusMsg):null
       ),
+
+      /* ── AI Follow-up Question ── */
+      result&&!loading?h('div',{className:'card',style:{marginBottom:14,borderColor:C.purple+'40'}},
+        h('div',{style:{fontSize:12,fontWeight:700,color:C.textB,marginBottom:8}},
+          h('i',{className:'ti ti-message-chatbot',style:{color:C.purple,marginRight:6}}),
+          'Ask a follow-up question about ',result.ticker
+        ),
+        h('div',{style:{display:'flex',gap:6}},
+          h('input',{type:'text',className:'finp',autoComplete:'off',
+            value:followupQ,
+            onChange:function(e){setFollowupQ(e.target.value);},
+            onKeyDown:function(e){if(e.key==='Enter'&&!followupLoading)askFollowup();},
+            placeholder:'e.g. What if interest rates drop? What is the bear case? Is $95 a good stop?',
+            style:{flex:1,fontSize:11}}),
+          h('button',{className:'btn btn-p',style:{flexShrink:0},onClick:askFollowup,
+            disabled:!followupQ.trim()||followupLoading||!hasAK},
+            followupLoading?h('span',{className:'sp'}):h('i',{className:'ti ti-send'})
+          )
+        ),
+        followupResp?h('div',{style:{marginTop:10,fontSize:11,color:C.textB,lineHeight:1.7,
+            background:C.surf2,borderRadius:5,padding:'10px 12px',
+            borderLeft:'3px solid '+C.purple,whiteSpace:'pre-wrap'}},followupResp):null,
+        followupLoading?h('div',{style:{marginTop:8,fontSize:11,color:C.muted}},
+          h('span',{className:'sp',style:{marginRight:6}}),'Thinking...'):null
+      ):null,
       (result&&!loading)?h('div',{className:'card',style:{padding:0,overflow:'hidden',marginBottom:14}},
         h('div',{style:{background:RC[result.rec]||C.warn,padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}},
           h('div',{style:{display:'flex',alignItems:'center',gap:12}},
@@ -16320,7 +17496,7 @@ function App(){
           ),
           result.price?h('div',{style:{textAlign:'right'}},
             h('div',{style:{fontSize:10,color:'rgba(255,255,255,0.65)'}},'Live price'),
-            h('div',{style:{fontSize:24,fontWeight:700,color:'#fff',fontFamily:C.mono}},'$'+result.price.toFixed(2)),
+            h('div',{style:{fontSize:24,fontWeight:700,color:'#fff',fontFamily:C.mono}},'$'+(+(result.price||0)).toFixed(2)),
             (result.priceData&&result.priceData.change!=null)?h('div',{style:{fontSize:12,color:'rgba(255,255,255,0.8)',fontFamily:C.mono}},(result.priceData.change>=0?'+':'-')+'$'+Math.abs(result.priceData.change||0).toFixed(2)+' ('+(result.priceData.changePct||0).toFixed(2)+'%) today'):null,
             h('div',{style:{fontSize:10,color:'rgba(255,255,255,0.5)',marginTop:2}},result.priceData?result.priceData.source:'')
           ):h('div',{style:{fontSize:12,color:'rgba(255,255,255,0.6)'}},'Add price API key for live data')
@@ -16371,7 +17547,7 @@ function App(){
             var col=(RC[hh.rec]||C.warn);
             return h('div',{key:i,style:{background:C.surf,border:'1px solid '+col+'35',borderRadius:6,padding:'10px 12px',cursor:'pointer'},onClick:function(){setTicker(hh.ticker);setResult(hh);}},
               h('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:3}},h('span',{style:{fontFamily:C.mono,fontWeight:700,fontSize:13,color:C.textB}},hh.ticker),h('span',{style:{fontSize:10,fontWeight:700,padding:'2px 6px',borderRadius:2,background:col+'20',color:col,border:'1px solid '+col+'40'}},hh.rec)),
-              hh.price?h('div',{style:{fontFamily:C.mono,fontSize:11,color:C.muted2}},'$'+hh.price.toFixed(2)):null,
+              hh.price?h('div',{style:{fontFamily:C.mono,fontSize:11,color:C.muted2}},'$'+(+(hh.price||0)).toFixed(2)):null,
               h('div',{style:{fontSize:9,color:C.muted,marginTop:3,fontFamily:C.mono}},hh.fetchedAt?new Date(hh.fetchedAt).toLocaleTimeString():'')
             );
           })
@@ -16641,7 +17817,7 @@ function App(){
           ),
           h('div',{style:{background:col+'10',border:'1px solid '+col+'20',borderRadius:4,padding:'7px 10px',marginBottom:8,fontSize:11,color:C.muted2,lineHeight:1.6}},rec.thesis),
           h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:8}},
-            (isBuy?[['Entry',rec.entryRange?'$'+rec.entryRange[0].toFixed(2)+' - $'+rec.entryRange[1].toFixed(2):'--',C.blue],['Target',rec.priceTarget?'$'+rec.priceTarget.toFixed(2):'--',C.green],['Stop',rec.stopLoss?'$'+rec.stopLoss.toFixed(2):'--',C.red]]:[['Exit',rec.exitTarget?'$'+rec.exitTarget.toFixed(2):'--',C.green],['Stop',rec.stopLoss?'$'+rec.stopLoss.toFixed(2):'--',C.red],['Action',rec.action||'SELL',col]]).map(function(x){return h('div',{key:x[0],style:{background:C.surf3,borderRadius:4,padding:'6px 8px'}},h('div',{style:{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.08em'}},x[0]),h('div',{style:{fontFamily:C.mono,fontSize:11,fontWeight:600,color:x[2],marginTop:2}},x[1]));})
+            (isBuy?[['Entry',(rec.entryRange&&rec.entryRange.length>=2)?'$'+rec.entryRange[0].toFixed(2)+' - $'+rec.entryRange[1].toFixed(2):'--',C.blue],['Target',rec.priceTarget?'$'+rec.priceTarget.toFixed(2):'--',C.green],['Stop',rec.stopLoss?'$'+rec.stopLoss.toFixed(2):'--',C.red]]:[['Exit',rec.exitTarget?'$'+rec.exitTarget.toFixed(2):'--',C.green],['Stop',rec.stopLoss?'$'+rec.stopLoss.toFixed(2):'--',C.red],['Action',rec.action||'SELL',col]]).map(function(x){return h('div',{key:x[0],style:{background:C.surf3,borderRadius:4,padding:'6px 8px'}},h('div',{style:{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:'0.08em'}},x[0]),h('div',{style:{fontFamily:C.mono,fontSize:11,fontWeight:600,color:x[2],marginTop:2}},x[1]));})
           ),
           h('div',{style:{display:'flex',gap:4,flexWrap:'wrap',marginBottom:6}},
             (isBuy?rec.catalysts||[]:rec.headwinds||[]).map(function(c,i){return h('span',{key:i,style:{fontSize:10,background:C.surf3,color:C.muted2,border:'.5px solid '+C.brd,padding:'2px 7px',borderRadius:3}},h('span',{style:{color:col,fontWeight:700}},isBuy?'^':'v'),' ',c);})
@@ -16846,6 +18022,29 @@ function App(){
           ' - both work perfectly from local files. Add one of those keys below and set it as Active.'
         ):null
       ),
+      /* ── AI Investment Goals / Memory ── */
+      h('div',{className:'card',style:{marginBottom:14,borderColor:C.purple+'40'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:8}},
+          h('div',{style:{width:34,height:34,background:C.purple+'15',border:'1px solid '+C.purple+'30',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},
+            h('i',{className:'ti ti-brain',style:{fontSize:16,color:C.purple}})),
+          h('div',null,
+            h('div',{style:{fontSize:13,fontWeight:700,color:C.textB}},'AI Investor Profile & Memory'),
+            h('div',{style:{fontSize:11,color:C.muted}},'Injected into every AI prompt. The AI will tailor all analysis to your profile.')
+          )
+        ),
+        h('textarea',{
+          value:aiGoals,
+          onChange:function(e){saveAiGoals(e.target.value);},
+          placeholder:'Example: I am 42 years old, targeting retirement at 60 with a $2M goal. I have a moderate risk tolerance and focus on dividend growth and defense sector. I prefer positions under $1,000 increments and want to avoid tobacco and gambling stocks. I am in the 24% tax bracket and hold a mix of taxable and Roth IRA accounts.',
+          style:{width:'100%',background:C.surf2,border:'1px solid '+C.brd,color:C.text,
+            borderRadius:5,padding:'10px',fontSize:11,fontFamily:'Inter,sans-serif',
+            lineHeight:1.6,resize:'vertical',minHeight:100,outline:'none',boxSizing:'border-box'}
+        }),
+        aiGoals?h('div',{style:{fontSize:10,color:C.green,marginTop:6,display:'flex',alignItems:'center',gap:4}},
+          h('i',{className:'ti ti-circle-check'}),
+          'Profile active -- injected into all AI requests ('+(aiGoals.trim().split(/\s+/).length)+' words)'):
+        h('div',{style:{fontSize:10,color:C.muted,marginTop:6}},'Leave blank to skip. Changes auto-save as you type.')
+      ),
       h('div',{style:{background:'rgba(77,158,255,.08)',border:'1px solid rgba(77,158,255,.3)',borderRadius:6,padding:'10px 14px',marginBottom:10,fontSize:11,color:C.textB,display:'flex',alignItems:'flex-start',gap:8}},
         h('i',{className:'ti ti-info-circle',style:{color:C.blue,fontSize:16,flexShrink:0,marginTop:1}}),
         h('div',null,
@@ -16949,6 +18148,8 @@ function App(){
                   var text=evt.target.result;
                   var lines=text.split('\n').filter(function(l){return l.trim();});
                   if(lines.length<2){alert('CSV appears empty or invalid.');return;}
+                  /* Strip BOM and clean header */
+                  lines[0]=lines[0].replace(/^﻿/,'').replace(/^ï»¿/,'');
                   var header=lines[0].toLowerCase();
                   /* Detect broker format */
                   var isFidelity=header.indexOf('account name')>=0||header.indexOf('symbol')>=0;
@@ -16962,22 +18163,43 @@ function App(){
                   var costCol=cols.findIndex(function(c){return c.indexOf('cost')>=0||c.indexOf('avg')>=0||c.indexOf('average')>=0||c.indexOf('price')>=0;});
                   var nameCol=cols.findIndex(function(c){return c==='description'||c==='name'||c==='security name';});
 
-                  if(tickerCol<0){alert('Could not find Symbol/Ticker column. Columns found: '+cols.join(', '));return;}
+                  if(tickerCol<0){
+                    alert('Could not find Symbol/Ticker column.\n\nColumns found: '+cols.join(', ')+'\n\nTry renaming your Symbol column to "Symbol" or "Ticker".');
+                    return;
+                  }
                   if(sharesCol<0){alert('Could not find Quantity/Shares column. Columns found: '+cols.join(', '));return;}
 
                   var imported=[];
                   lines.slice(1).forEach(function(line,i){
-                    /* Handle quoted CSV */
-                    var vals=line.match(/(".*?"|[^,]+)(?=,|$)/g);
-                    if(!vals)return;
-                    vals=vals.map(function(v){return v.replace(/^"|"$/g,'').trim();});
-                    var ticker=(vals[tickerCol]||'').toUpperCase().replace(/[^A-Z.]/g,'');
-                    var sharesRaw=(vals[sharesCol]||'').replace(/[$,]/g,'');
+                    /* Skip blank lines */
+                    if(!line.trim())return;
+                    /* Handle quoted CSV (handles commas inside quotes) */
+                    var vals=[];var cur='';var inQ=false;
+                    for(var ci=0;ci<line.length;ci++){
+                      var ch=line[ci];
+                      if(ch==='"'){inQ=!inQ;}
+                      else if(ch===','&&!inQ){vals.push(cur.trim().replace(/^"|"$/g,''));cur='';}
+                      else{cur+=ch;}
+                    }
+                    vals.push(cur.trim().replace(/^"|"$/g,''));
+                    if(vals.length<2)return;
+                    var ticker=(vals[tickerCol]||'').toUpperCase()
+                      .replace(/[^A-Z0-9.\-]/g,'') /* allow . and - for share classes */
+                      .replace(/\./g,'-'); /* normalize BRK.B -> BRK-B */
+                    var sharesRaw=(vals[sharesCol]||'').replace(/[$,\s]/g,'');
                     var shares=parseFloat(sharesRaw);
-                    var costRaw=costCol>=0?(vals[costCol]||'').replace(/[$,]/g,''):'0';
-                    var cost=parseFloat(costRaw)||0;
+                    var costRaw=costCol>=0?(vals[costCol]||'').replace(/[$,\s]/g,''):'0';
+                    var cost=Math.abs(parseFloat(costRaw)||0);
                     var name=nameCol>=0?(vals[nameCol]||ticker):ticker;
-                    if(!ticker||ticker.length>6||isNaN(shares)||shares<=0)return;
+                    /* Skip non-stock rows */
+                    var skipKeywords=['cash','pending','money market','sweep','credit','debit',
+                      'dividends','interest','fee','margin','options','futures','total'];
+                    var nameL=(name||'').toLowerCase();
+                    if(skipKeywords.some(function(kw){return nameL.indexOf(kw)>=0&&nameL.length<40;}))return;
+                    /* Validate: ticker 1-6 chars (allow - for share classes), positive shares */
+                    if(!ticker||ticker.length>7||isNaN(shares)||shares<=0)return;
+                    /* Handle fractional shares -- keep full precision */
+                    shares=parseFloat(shares.toFixed(8));
                     imported.push({
                       id:Date.now()+i,ticker:ticker,name:name,type:'stock',
                       shares:shares,avgCost:cost,price:cost,
@@ -17329,7 +18551,7 @@ function App(){
           )
         ),
         h('div',{className:'sb-body'},
-          detail?h(DetailPanel,{item:detail,livePrices:livePrices,onSaveNotes:function(id,notes){var updated=positions.map(function(p){return p.id===id?Object.assign({},p,{notes:notes}):p;});setPositions(updated);lsSet('apex_pos',updated);},onManualUpdate:handleManualUpdate,onFetchLive:handleFetchLive,keys:keys,activePP:activePP}):
+          detail?h(DetailPanel,{item:detail,livePrices:livePrices,onSaveNotes:function(id,notes){var updated=positions.map(function(p){return p.id===id?Object.assign({},p,{notes:notes}):p;});setPositions(updated);lsSet('apex_pos',updated);},onEditPosition:function(id,fields){var upd2=positions.map(function(p){return p.id===id?Object.assign({},p,fields):p;});updPos(upd2);setDetail(Object.assign({},detail,fields));},onManualUpdate:handleManualUpdate,onFetchLive:handleFetchLive,keys:keys,activePP:activePP}):
           h('div',null,
             /* Fired alerts from this session */
             firedAlerts.length>0?h('div',{style:{marginBottom:8}},
@@ -17361,7 +18583,7 @@ function App(){
 
               /* Check each position for price signals */
               positions.forEach(function(p){
-                var lp=livePrices[p.ticker];
+                var lp=safeLP(livePrices[p.ticker]);
                 if(!lp)return;
                 var chgPct=p.price>0?(lp-p.price)/p.price*100:0;
                 var gainLoss=(lp-p.avgCost)*p.shares;
@@ -17374,14 +18596,14 @@ function App(){
                 /* Significant P&L */
                 if(Math.abs(gainLoss)>=1000){
                   liveAlerts.push({ticker:p.ticker,severity:gainLoss>0?'LOW':'MEDIUM',
-                    detail:'P&L: '+(gainLoss>0?'+':'-')+'$'+Math.abs(gainLoss).toFixed(0)+' vs avg cost $'+p.avgCost.toFixed(2),
+                    detail:'P&L: '+(gainLoss>0?'+':'-')+'$'+Math.abs(gainLoss).toFixed(0)+' vs avg cost $'+(+(p.avgCost||0)).toFixed(2),
                     time:timeStr,date:dateStr});
                 }
               });
 
               /* Watchlist movers */
               watchlist.forEach(function(w){
-                var lp=livePrices[w.ticker];
+                var lp=safeLP(livePrices[w.ticker]);
                 if(!lp)return;
                 var chgPct=w.price>0?(lp-w.price)/w.price*100:0;
                 if(Math.abs(chgPct)>=4){
