@@ -437,10 +437,14 @@ async function fetchPrice(ticker,keys,prov){
   }
   if(prov==="yahoo"){
     /* Yahoo Finance -- free, no key required. Works from file:// and most browsers. */
-    const yhUrl="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(t)+"?interval=1d&range=1d";
-    const yhR=await fetch(yhUrl,{cache:"no-store",headers:{"Accept":"application/json"}});
-    if(!yhR.ok)throw new Error("Yahoo Finance returned "+yhR.status);
-    const yhD=await yhR.json();
+    const yhUrl="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(normalizeYahooTicker(t))+"?interval=1d&range=1d";
+    /* Use corsFetch so it works from file:// via proxy fallback */
+    const yhD=await corsFetch(yhUrl).catch(async function(){
+      /* Direct fallback with Accept header */
+      const r=await fetch(yhUrl,{cache:"no-store",headers:{"Accept":"application/json"}});
+      if(!r.ok)throw new Error("Yahoo Finance returned "+r.status);
+      return r.json();
+    });
     const yhQ=yhD&&yhD.chart&&yhD.chart.result&&yhD.chart.result[0];
     if(!yhQ)throw new Error("No Yahoo data for "+t);
     const yhMeta=yhQ.meta;
@@ -911,7 +915,6 @@ function App(){
       var tickers=FAST_STOCKS.map(function(s){return s.ticker;});
       var promises=tickers.map(function(ticker){
         return corsFetch('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(normalizeYahooTicker(ticker))+'?interval=1d&range=1d')
-          .then(function(r){return r.json();})
           .then(function(d){
             var q=d&&d.chart&&d.chart.result&&d.chart.result[0];
             if(!q)return null;
@@ -1094,8 +1097,8 @@ function App(){
   function updKeys(v){setKeys(v);lsSet('apex_pkeys',v);}
   function setAI(v){setActiveAI(v);lsSet('apex_ai',v);}
   function setPP(v){setActivePP(v);lsSet('apex_pp',v);}
-  function getPrice(item){var lp=livePrices[item.ticker];return (lp&&!lp.error&&lp.price>0)?lp.price:item.price;}
-  function getLive(t){var lp=livePrices[t];return (lp&&!lp.error&&lp.price>0)?lp:null;}
+  function getPrice(item){var lp=safeLP(livePrices[item.ticker]);return (lp&&lp>0)?lp:(item.price||0);}
+  function getLive(t){var lp=livePrices[t];return (lp&&(typeof lp==='number'?lp>0:lp.price>0))?lp:null;}
   var totalPnl=positions.reduce(function(s,p){return s+(getPrice(p)-p.avgCost)*p.shares;},0);
   var hasPK=PRICE_PROVS.some(function(p){return keys[p.id];});
   /* hasAK: active AI provider has a key AND is not CORS-blocked */
@@ -1181,7 +1184,8 @@ function App(){
   useEffect(function(){
     if(!hasPK){setFetchStatus('no_key');return;}
     var c=loadPC();
-    if(c.fetchedAt&&Object.keys(c.prices).length>0){setLivePrices(c.prices);setFetchStatus('cached');checkAllAlerts(c.prices);return;}
+    if(c.fetchedAt&&Object.keys(c.prices).length>0){var normalized={};Object.keys(c.prices||{}).forEach(function(k){var v=c.prices[k];normalized[k]=v;});
+      setLivePrices(normalized);setFetchStatus('cached');checkAllAlerts(normalized);return;}
     doFetch();
   },[]);
 
@@ -1265,13 +1269,13 @@ function App(){
     {id:'markets',   label:'Markets',    icon:'ti-chart-area',
      tabs:['macro','calendar','earnings','rates','crypto','funds','bonds','sentiment','econinds','heatmap','rotation','breadth','ipo']},
     {id:'research',  label:'Research',   icon:'ti-search',
-     tabs:['screener','compare','fundamentals','etfxray','cttracker','congress','wallfirms','dcf','shortflow']},
+     tabs:['screener','compare','fundamentals','etfxray','cttracker','congress','wallfirms','analystratings','morningstar','dcf','shortflow']},
     {id:'trading',   label:'Trading',    icon:'ti-trending-up',
      tabs:['fastmoney','options','analysis','advisor','triggers','sizing','dca','journal','rrisk','greeks']},
     {id:'planning',  label:'Planning',   icon:'ti-umbrella',
      tabs:['insurance','retirement','credit','socsec','broker','inflation']},
     {id:'more',      label:'More',       icon:'ti-dots',
-     tabs:['events','settings']},
+     tabs:['events','stockpicks','tradeprompt','settings']},
   ];
 
   var TABS=[
@@ -1320,6 +1324,8 @@ function App(){
     {id:'cttracker',icon:'ti-user-search',label:'Congress Tracker'},
     {id:'congress',icon:'ti-building-bank',label:'Congress & World'},
     {id:'wallfirms',icon:'ti-building-skyscraper',label:'Wall St Firms'},
+    {id:'analystratings',icon:'ti-star',label:'Analyst Ratings'},
+    {id:'morningstar',icon:'ti-star-half',label:'Morningstar'},
     {id:'funds',icon:'ti-chart-pie',label:'Funds & ETFs'},
     {id:'options',icon:'ti-replace',label:'Options'},
     {id:'credit',icon:'ti-credit-card',label:'Credit & Debt'},
@@ -1330,7 +1336,9 @@ function App(){
     {id:'advisor',icon:'ti-message-chatbot',label:'Stock Advisor'},
     {id:'crypto',icon:'ti-currency-bitcoin',label:'Crypto & Rates'},
     {id:'events',icon:'ti-news',label:'Event Plays'},
-    {id:'settings',icon:'ti-settings',label:'Settings'}
+    {id:'settings',icon:'ti-settings',label:'Settings'},
+    {id:'stockpicks',icon:'ti-rocket',label:'Stock Picks'},
+    {id:'tradeprompt',icon:'ti-prompt',label:'Trade Advisor'}
   ];
 
   /* -- add forms -- */
@@ -8215,9 +8223,7 @@ function App(){
     /* and CNN's market API for equity F&G */
     function fetchFearGreed(){
       setFgLoad(true);
-      corsFetch('https://api.alternative.me/fng/?limit=7')
-        .then(function(r){return r.json();})
-        .then(function(data){
+      corsFetch('https://api.alternative.me/fng/?limit=7').then(function(data){
           var current=data&&data.data&&data.data[0];
           var history=data&&data.data?data.data.slice(0,7):[];
           if(current){
@@ -10823,8 +10829,7 @@ function App(){
       var syms=['%5EIRX','%5ETNX','%5ETYX'];
       var out={};var done=0;
       syms.forEach(function(s){
-        fetch('https://query1.finance.yahoo.com/v8/finance/chart/'+s+'?interval=1d&range=1d',{cache:'no-store'})
-          .then(function(r){return r.json();}).then(function(d){
+        corsFetch('https://query1.finance.yahoo.com/v8/finance/chart/'+normalizeYahooTicker(s)+'?interval=1d&range=1d').then(function(d){
             var q=d&&d.chart&&d.chart.result&&d.chart.result[0];
             if(q){var p=q.meta.regularMarketPrice;
               if(s.indexOf('IRX')>=0)out.t3mo=p;
@@ -11462,7 +11467,7 @@ function App(){
               ),
               h('div',{style:{textAlign:'right'}},
                 h('div',{style:{fontFamily:C.mono,fontSize:16,fontWeight:700,color:C.textB}},
-                  '$'+(fmPrices[stock.ticker]?fmPrices[stock.ticker].price?( +(+(""+"".concat(0))||0) ).toFixed(2):'0.00':(+(stock.price||0)).toFixed(2)),
+                  '$'+(fmPrices[stock.ticker]?((+(fmPrices[stock.ticker].price||0)).toFixed(2)):(+(stock.price||0)).toFixed(2)),
                   fmPrices[stock.ticker]?h('span',{style:{fontSize:9,fontFamily:C.mono,color:fmPrices[stock.ticker].chgPct>=0?C.green:C.red,marginLeft:4}},(fmPrices[stock.ticker].chgPct>=0?'+':'')+fmPrices[stock.ticker].chgPct.toFixed(2)+'%'):null
                 ),
                 h('div',{style:{display:'flex',alignItems:'center',gap:4,marginTop:1}},
@@ -13296,6 +13301,845 @@ function App(){
      TabWallFirms -- Top 5 investment firms, their buy/sell picks,
      API key management, and AI-powered deep dives
      ================================================================ */
+
+  /* ================================================================
+     TabAnalystRatings -- Analyst Ratings from Major Research Firms
+     ================================================================ */
+
+  /* ================================================================
+     TabStockPicks -- Curated picks from Alpha Picks, TheStreet,
+     Motley Fool, Mindful Trader, and CNBC Trader Club
+     ================================================================ */
+  function TabStockPicks(){
+    var ssp=useState('all'),pickFilter=ssp[0],setPickFilter=ssp[1];
+    var ssf=useState(''),pickSearch=ssf[0],setPickSearch=ssf[1];
+
+    var SERVICES=[
+      {id:'alpha',  name:'Alpha Picks (Seeking Alpha)', color:'#FF9800', icon:'ti-rocket',
+       desc:'Quantitative model selects 2 stocks/month. Long-term focus, 5+ year horizon. Backtested outperformance vs S&P.',
+       link:'https://seekingalpha.com/alpha-picks', cost:'$299/yr', type:'Growth/Value'},
+      {id:'fool',   name:'Motley Fool Stock Advisor',   color:'#E53935', icon:'ti-device-gamepad-2',
+       desc:'Flagship service since 2002. ~24 new picks/year plus best-buy-now list. 400%+ vs 150% S&P since inception.',
+       link:'https://www.fool.com/investing/stock-advisor', cost:'$199/yr', type:'Growth'},
+      {id:'thestreet',name:'TheStreet Quant Ratings',  color:'#1565C0', icon:'ti-building-store',
+       desc:'Quantitative ratings engine (A+ to E) covering 4,500+ stocks. Based on 32 fundamental/technical factors.',
+       link:'https://www.thestreet.com/ratings', cost:'$149/yr', type:'Quant'},
+      {id:'mindful',name:'Mindful Trader',              color:'#43A047', icon:'ti-brain',
+       desc:'Swing trading service by Eric Ferguson. Statistical/data-driven signals. 5-30 day holds. Avg 74% win rate.',
+       link:'https://mindfultrader.com', cost:'$47/mo', type:'Swing'},
+      {id:'cnbc',   name:'CNBC Investing Club',         color:'#0076CE', icon:'ti-brand-cnbc',
+       desc:'Jim Cramer portfolio updates. 35+ stocks actively managed. Real-money portfolio with entry/exit alerts.',
+       link:'https://www.cnbc.com/investingclub', cost:'$400/yr', type:'Active'},
+    ];
+
+    var PICKS=[
+      /* Alpha Picks */
+      {service:'alpha', ticker:'HIMS',  name:'Hims & Hers Health',   rec:'BUY',  pt:30,  added:'May 2025',  conviction:'High',   note:'GLP-1 compounding market + telehealth platform. Recurring revenue model. Alpha Picks high-conviction long-term holding.'},
+      {service:'alpha', ticker:'CAVA',  name:'Cava Group',           rec:'BUY',  pt:145, added:'Mar 2025',  conviction:'High',   note:'Mediterranean fast-casual category leader. Same-store sales +14%. Expansion from 340 to 1000+ locations in 10 years.'},
+      {service:'alpha', ticker:'AXON',  name:'Axon Enterprise',      rec:'BUY',  pt:700, added:'Jan 2025',  conviction:'High',   note:'Taser + body cam + cloud software (DEMS). Recurring SaaS revenue 60%+ of total. Sole-source government contracts.'},
+      {service:'alpha', ticker:'CRWD',  name:'CrowdStrike',          rec:'BUY',  pt:380, added:'Dec 2024',  conviction:'High',   note:'Falcon platform AI-native cybersecurity leader. 50%+ gross margin. Falcon Flex multi-product adoption accelerating.'},
+      {service:'alpha', ticker:'MNDY',  name:'Monday.com',           rec:'BUY',  pt:280, added:'Oct 2024',  conviction:'Medium', note:'Work OS platform expanding from project mgmt to CRM and dev. SMB + enterprise. Rule of 40 approaching. FCF positive.'},
+      {service:'alpha', ticker:'APP',   name:'AppLovin',             rec:'BUY',  pt:420, added:'Sep 2024',  conviction:'High',   note:'Mobile gaming ad tech + AXON AI platform. 40%+ revenue growth. Software transition from hardware. FCF machine.'},
+      /* Motley Fool */
+      {service:'fool',  ticker:'NVDA',  name:'Nvidia',               rec:'BUY',  pt:175, added:'Apr 2023',  conviction:'High',   note:'Fool Stock Advisor top pick. AI infrastructure backbone. Blackwell cycle just beginning. #1 best buy now.'},
+      {service:'fool',  ticker:'AMZN',  name:'Amazon',               rec:'BUY',  pt:260, added:'Sep 2018',  conviction:'High',   note:'AWS + advertising + Prime flywheel compounding. Multiple businesses each worth >$1T. Long-term Fool core holding.'},
+      {service:'fool',  ticker:'SHOP',  name:'Shopify',              rec:'BUY',  pt:120, added:'Jan 2025',  conviction:'High',   note:'Global commerce OS. Merchant Solutions revenue accelerating. Payments + capital attach rate growing. Logistics exit positive.'},
+      {service:'fool',  ticker:'SQ',    name:'Block (Square)',        rec:'BUY',  pt:95,  added:'Nov 2024',  conviction:'Medium', note:'Cash App 55M+ monthly actives. Bitcoin strategy optionality. Seller ecosystem ARPU growing. Valuation attractive post-decline.'},
+      {service:'fool',  ticker:'DDOG',  name:'Datadog',              rec:'BUY',  pt:145, added:'Mar 2025',  conviction:'High',   note:'AI infrastructure monitoring. Rule of 40 leader. 80%+ gross margin. LLM observability new growth vector. NRR >120%.'},
+      {service:'fool',  ticker:'NET',   name:'Cloudflare',           rec:'BUY',  pt:135, added:'Dec 2024',  conviction:'High',   note:'Network-as-a-service platform. Zero Trust security growing 40%+. Workers AI platform new revenue stream. 130%+ NRR.'},
+      {service:'fool',  ticker:'CELH',  name:'Celsius Holdings',     rec:'BUY',  pt:42,  added:'Feb 2025',  conviction:'Medium', note:'Energy drink challenger taking share from Monster and Redbull. International expansion beginning. PepsiCo distribution deal.'},
+      /* TheStreet */
+      {service:'thestreet', ticker:'JPM',  name:'JPMorgan Chase',   rec:'A',    pt:290, added:'Current',   conviction:'A-Rated',note:'TheStreet A-rated. Strong earnings quality, NIM resilient, capital ratios excellent. 5-year total return >150%.'},
+      {service:'thestreet', ticker:'LLY',  name:'Eli Lilly',        rec:'A+',   pt:1050,added:'Current',   conviction:'A+-Rated',note:'TheStreet A+ highest rating. GLP-1 franchise creates decade of outperformance. EPS growth >40% for 3+ years.'},
+      {service:'thestreet', ticker:'AAPL', name:'Apple',            rec:'B+',   pt:240, added:'Current',   conviction:'B+-Rated',note:'TheStreet B+. Premium hardware + services growth. AI features potential iPhone upgrade catalyst. Cash return machine.'},
+      {service:'thestreet', ticker:'TSLA', name:'Tesla',            rec:'C',    pt:200, added:'Current',   conviction:'C-Rated', note:'TheStreet C rating. Margin pressure from price cuts. Robotaxi timeline uncertain. FSD still requires driver attention.'},
+      {service:'thestreet', ticker:'AVGO', name:'Broadcom',         rec:'A',    pt:295, added:'Current',   conviction:'A-Rated', note:'TheStreet A-rated. Custom ASIC AI silicon growing. VMware cross-sell accelerating. Free cash flow >$20B annually.'},
+      {service:'thestreet', ticker:'GS',   name:'Goldman Sachs',    rec:'A',    pt:620, added:'Current',   conviction:'A-Rated', note:'TheStreet A-rated. Investment banking recovery. Asset mgmt AUM growing. Trading revenues strong across all desks.'},
+      /* Mindful Trader (swing) */
+      {service:'mindful', ticker:'SPY', name:'SPDR S&P 500 ETF',  rec:'LONG', pt:580, added:'Jun 2025', conviction:'Active', note:'Long SPY when breadth positive (>60% above 50dma). Short SPY when breadth negative. Primary vehicle for index swings.'},
+      {service:'mindful', ticker:'QQQ', name:'Invesco QQQ Trust',  rec:'LONG', pt:490, added:'Jun 2025', conviction:'Active', note:'QQQ long when Nasdaq 100 momentum positive. Managed with 2-3% stop losses. Avg hold 8-15 days per signal.'},
+      {service:'mindful', ticker:'NVDA', name:'Nvidia',             rec:'LONG', pt:145, added:'May 2025', conviction:'High',   note:'Mindful Trader momentum signal long NVDA. Technical breakout above $130. Trailing stop at $128. Target $145-150.'},
+      {service:'mindful', ticker:'META', name:'Meta Platforms',     rec:'LONG', pt:640, added:'May 2025', conviction:'High',   note:'Statistical edge: Meta has 73% probability of +5% move in next 15 days based on current setup. Risk/reward 3:1.'},
+      {service:'mindful', ticker:'COST', name:'Costco',             rec:'LONG', pt:1010,added:'Jun 2025', conviction:'Medium',note:'Mindful momentum signal: COST relative strength breakout. Membership renewal season catalyst. Hold 10-15 days.'},
+      /* CNBC Investing Club / Jim Cramer */
+      {service:'cnbc', ticker:'NVDA', name:'Nvidia',              rec:'BUY',  pt:175, added:'Nov 2023', conviction:'Core',   note:"Cramer's largest position. 'Own it don't trade it.' Adds on every dip. Core AI infrastructure holding in the Trust."},
+      {service:'cnbc', ticker:'AAPL', name:'Apple',               rec:'BUY',  pt:240, added:'2018',    conviction:'Core',   note:'CNBC Club core. Warren Buffett effect + services compounding. Adds when below $200. Long-term hold.'},
+      {service:'cnbc', ticker:'META', name:'Meta',                rec:'BUY',  pt:650, added:'Nov 2022',conviction:'Core',   note:"Cramer added heavily at $90 lows. 'Zuckerberg is executing.' Year of efficiency thesis played out. Still adding."},
+      {service:'cnbc', ticker:'AMZN', name:'Amazon',              rec:'BUY',  pt:255, added:'Mar 2023',conviction:'Core',   note:'AWS re-acceleration thesis confirmed. Club bought heavily at $90-100. Advertising $50B+ new business undervalued.'},
+      {service:'cnbc', ticker:'GE',   name:'GE Aerospace',        rec:'BUY',  pt:220, added:'Jan 2024',conviction:'High',   note:"Cramer owns GE Aerospace. 'The best aerospace play out there.' LEAP engine backlog. Service revenue 10-year tail."},
+      {service:'cnbc', ticker:'DIS',  name:'Walt Disney',         rec:'BUY',  pt:115, added:'Apr 2024',conviction:'Medium', note:'Club position. Iger restructuring + ESPN DTC + parks resilient. Streaming profitability improving. Trading at trough.'},
+      {service:'cnbc', ticker:'HON',  name:'Honeywell',           rec:'BUY',  pt:245, added:'Jun 2025',conviction:'New',    note:'New Club add. Industrial spinoff creates shareholder value. Aerospace + energy transition. Dario Amodei comparable to early AI.'},
+    ];
+
+    var services=['all'].concat(SERVICES.map(function(s){return s.id;}));
+    var SERVICE_MAP={};
+    SERVICES.forEach(function(s){SERVICE_MAP[s.id]=s;});
+
+    var filtered=PICKS.filter(function(p){
+      if(pickFilter!=='all'&&p.service!==pickFilter)return false;
+      if(pickSearch&&p.ticker.indexOf(pickSearch.toUpperCase())<0&&
+         p.name.toLowerCase().indexOf(pickSearch.toLowerCase())<0)return false;
+      return true;
+    });
+
+    var REC_COL={'BUY':C.green,'A+':C.green,'A':C.green,'A-':'#4ade80','B+':'#4ade80','LONG':C.teal,'HOLD':C.warn,'C':C.warn,'SELL':C.red,'SHORT':C.red,'Core':C.blue,'High':C.green,'Medium':C.warn,'Active':C.teal,'New':C.purple};
+
+    function inPort(t){return positions.some(function(p){return p.ticker===t;});}
+
+    return h('div',null,
+      /* Header */
+      h('div',{className:'card',style:{marginBottom:14}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:12}},
+          h('div',{style:{width:36,height:36,background:'rgba(168,85,247,.15)',border:'1px solid rgba(168,85,247,.4)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},
+            h('i',{className:'ti ti-rocket',style:{fontSize:18,color:C.purple}})),
+          h('div',null,
+            h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'Stock Picks by Research Service'),
+            h('div',{style:{fontSize:11,color:C.muted}},'Curated picks from Alpha Picks, Motley Fool, TheStreet, Mindful Trader, and CNBC Investing Club.')),
+          h(SeedBadge,null)
+        ),
+        /* Service cards */
+        h('div',{style:{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:6,marginBottom:12}},
+          SERVICES.map(function(s){
+            var isActive=pickFilter===s.id;
+            return h('div',{key:s.id,className:'card',
+              style:{background:isActive?s.color+'15':C.surf2,borderColor:isActive?s.color+'50':C.brd,
+                cursor:'pointer',padding:'8px 10px',textAlign:'center'},
+              onClick:function(){setPickFilter(isActive?'all':s.id);}},
+              h('div',{style:{fontSize:10,fontWeight:700,color:s.color,marginBottom:2}},s.name.split('(')[0].trim()),
+              h('div',{style:{fontSize:9,color:C.muted2}},s.cost),
+              h('div',{style:{fontSize:9,color:C.muted}},s.type)
+            );
+          })
+        ),
+        /* Search + All filter */
+        h('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+          h('input',{type:'text',className:'finp',autoComplete:'off',placeholder:'Search ticker or name...',
+            value:pickSearch,onChange:function(e){setPickSearch(e.target.value);},
+            style:{width:180,fontSize:11}}),
+          h('button',{className:'tgl'+(pickFilter==='all'?' active':''),onClick:function(){setPickFilter('all');setPickSearch('');}},
+            'All Services ('+PICKS.length+' picks)')
+        )
+      ),
+
+      /* Picks list */
+      h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+        filtered.map(function(p,i){
+          var svc=SERVICE_MAP[p.service];
+          var port=inPort(p.ticker);
+          var lp=safeLP(livePrices[p.ticker])||p.pt*0.85;
+          var upside=p.pt&&lp?((p.pt-lp)/lp*100):0;
+          return h('div',{key:p.service+p.ticker+i,className:'card',
+            style:{borderColor:port?C.blue+'40':svc?svc.color+'25':C.brd,background:port?C.blue+'04':C.surf}},
+            h('div',{style:{display:'flex',alignItems:'flex-start',gap:10,flexWrap:'wrap'}},
+              h('div',{style:{width:36,height:36,background:(svc?svc.color:'#888')+'18',border:'1px solid '+(svc?svc.color:'#888')+'35',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},
+                h('i',{className:'ti '+(svc?svc.icon:'ti-chart-bar'),style:{color:svc?svc.color:'#888',fontSize:16}})),
+              h('div',{style:{flex:1,minWidth:120}},
+                h('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
+                  h('span',{style:{fontFamily:C.mono,fontWeight:700,fontSize:13,color:C.textB}},p.ticker),
+                  h('span',{style:{fontSize:11,color:C.muted}},p.name),
+                  port?h('span',{style:{fontSize:9,background:C.blue+'18',color:C.blue,border:'1px solid '+C.blue+'30',borderRadius:3,padding:'1px 5px',fontWeight:700}},'In Portfolio'):null
+                ),
+                h('div',{style:{display:'flex',alignItems:'center',gap:8,marginTop:3,flexWrap:'wrap'}},
+                  h('span',{style:{fontSize:10,fontWeight:700,color:svc?svc.color:'#888'}},svc?svc.name.split('(')[0].trim():''),
+                  h('span',{style:{fontSize:11,fontWeight:700,color:REC_COL[p.rec]||C.green}},p.rec),
+                  p.pt?h('span',{style:{fontSize:10,color:C.muted}},'PT: $'+p.pt):null,
+                  upside>0?h('span',{style:{fontSize:10,color:C.green}},'+'+upside.toFixed(0)+'% upside'):null,
+                  h('span',{style:{fontSize:9,color:C.muted2}},'Added '+p.added)
+                ),
+                h('div',{style:{fontSize:10,color:C.muted2,marginTop:4,lineHeight:1.5}},p.note)
+              ),
+              h('div',{style:{flexShrink:0,textAlign:'right'}},
+                h('div',{style:{fontSize:11,fontWeight:700,color:REC_COL[p.conviction]||C.muted}},p.conviction),
+                h('a',{href:svc?svc.link:'#',target:'_blank',rel:'noopener noreferrer',
+                  style:{fontSize:9,color:C.blue,textDecoration:'none'}},
+                  'Learn more ->')
+              )
+            )
+          );
+        })
+      )
+    );
+  }
+
+
+  /* ================================================================
+     TabTradePrompt -- AI Trade Advisor Prompt Generator
+     ================================================================ */
+  function TabTradePrompt(){
+    /* Form state */
+    var sil=useState('novice'),  invLevel=sil[0],setInvLevel=sil[1];
+    var srl=useState('moderate'),riskLevel=srl[0],setRiskLevel=srl[1];
+    var stk=useState(''),  ticker=stk[0],   setTicker=stk[1];
+    var sat=useState('buy'),  action=sat[0],    setAction=sat[1];
+    var ssh=useState(''),  shares=ssh[0],   setShares=ssh[1];
+    var sbu=useState(''),  budget=sbu[0],   setBudget=sbu[1];
+    var sml=useState(''),  maxLoss=sml[0],  setMaxLoss=sml[1];
+    var sth=useState('long'),  timeHorizon=sth[0],setTimeHorizon=sth[1];
+    var snotes=useState(''), extraNotes=snotes[0], setExtraNotes=snotes[1];
+    var sgen=useState(false), generated=sgen[0], setGenerated=sgen[1];
+
+    /* Research checkboxes */
+    var RESEARCH_TYPES=[
+      {id:'wallfirms',   label:'Wall Street Firms (GS, MS, JPM, Schwab, Baird, Citi)'},
+      {id:'analystcons', label:'Analyst Consensus Ratings (28+ research desks)'},
+      {id:'morningstar', label:'Morningstar Star Rating & Fair Value Estimate'},
+      {id:'alphapicks',  label:'Alpha Picks (Seeking Alpha quantitative model)'},
+      {id:'motoolfool',  label:'Motley Fool Stock Advisor picks'},
+      {id:'thestreet',   label:'TheStreet Quant Ratings (A+ to E)'},
+      {id:'mindful',     label:'Mindful Trader (swing trading statistical model)'},
+      {id:'cnbcclub',    label:'CNBC Investing Club (Jim Cramer portfolio)'},
+      {id:'congress',    label:'Congressional Trading Signals (House/Senate)'},
+      {id:'shortflow',   label:'Short Interest & Institutional Flows'},
+      {id:'dcf',         label:'DCF Intrinsic Value / Fundamentals'},
+      {id:'technical',   label:'Technical Analysis (RSI, MACD, momentum)'},
+      {id:'sectorrot',   label:'Sector Rotation & Market Cycle Position'},
+      {id:'macro',       label:'Macro Environment (rates, inflation, geopolitical)'},
+    ];
+    var RESEARCH_INIT={};
+    RESEARCH_TYPES.forEach(function(r){RESEARCH_INIT[r.id]=true;});
+    var sres=useState(RESEARCH_INIT), resChecks=sres[0], setResChecks=sres[1];
+
+    function toggleRes(id){setResChecks(function(prev){var n=Object.assign({},prev);n[id]=!n[id];return n;});}
+
+    var AI_AGENTS=[
+      {id:'chatgpt',    name:'ChatGPT (GPT-4o)',     icon:'ti-brand-openai', color:'#74AA9C', url:'https://chat.openai.com'},
+      {id:'gemini',     name:'Gemini 2.0 Flash',     icon:'ti-brand-google', color:'#4285F4', url:'https://gemini.google.com'},
+      {id:'grok',       name:'Grok 2 (xAI)',         icon:'ti-brand-x',      color:'#E7E7E7', url:'https://grok.x.ai'},
+      {id:'perplexity', name:'Perplexity AI',        icon:'ti-search',       color:'#20B2AA', url:'https://perplexity.ai'},
+      {id:'claude',     name:'Claude (Anthropic)',    icon:'ti-message-chatbot', color:'#D4847A', url:'https://claude.ai'},
+      {id:'copilot',    name:'Microsoft Copilot',    icon:'ti-brand-windows',color:'#0078D4', url:'https://copilot.microsoft.com'},
+    ];
+
+    /* Build the AI prompt */
+    function buildPrompt(perspective){
+      var selectedResearch=RESEARCH_TYPES.filter(function(r){return resChecks[r.id];}).map(function(r){return r.label;});
+      var invLabels={novice:'Novice Investor (less than 2 years experience, learning basics)',
+                     experienced:'Experienced Investor (5-15 years, understands risk management)',
+                     professional:'Professional/Sophisticated Investor (15+ years, advanced strategies)'};
+      var riskLabels={conservative:'Conservative (capital preservation, max 5% position loss tolerance)',
+                      moderate:'Moderate (balanced growth and risk, 10-15% position loss tolerance)',
+                      aggressive:'Aggressive (growth-focused, 20-25% loss tolerance, comfortable with volatility)',
+                      vhigh:'Very Aggressive / Speculative (high risk/reward, 30%+ loss tolerance, understands options/leverage)'};
+      var actionLabels={buy:'Long Stock Purchase (BUY)',sell:'Selling Existing Position (SELL)',
+                        short:'Short Selling (SHORT)',options:'Options Strategy (CALLS/PUTS/SPREADS)',
+                        dca:'Dollar-Cost Averaging (recurring purchase)',hold:'Hold and Monitor'};
+      var timeLabels={short:'Short-Term (days to 3 months, swing/momentum)',
+                      medium:'Medium-Term (3-12 months, catalyst-driven)',
+                      long:'Long-Term (1-5+ years, fundamental/growth)'};
+
+      var prompt = [
+        '=== APEX INTELLIGENCE TRADE ANALYSIS REQUEST ===',
+        '',
+        'INVESTOR PROFILE:',
+        '- Experience level: ' + (invLabels[invLevel]||invLevel),
+        '- Risk tolerance: ' + (riskLabels[riskLevel]||riskLevel),
+        '',
+        'PROPOSED TRADE:',
+        '- Stock/ETF: ' + (ticker||'[TICKER NOT SPECIFIED]'),
+        '- Action type: ' + (actionLabels[action]||action),
+        shares?'- Number of shares: ' + shares:'',
+        budget?'- Total budget/investment amount: $' + budget:'',
+        maxLoss?'- Maximum acceptable loss: $' + maxLoss + (budget?(' ('+((+maxLoss/+budget)*100).toFixed(0)+'% of investment)'):''):'',
+        '- Investment horizon: ' + (timeLabels[timeHorizon]||timeHorizon),
+        extraNotes?'- Additional context: ' + extraNotes:'',
+        '',
+        'RESEARCH CONTEXT TO INCORPORATE:',
+        selectedResearch.length>0?selectedResearch.map(function(r,i){return (i+1)+'. '+r;}).join('\n'):'(No specific research filters selected)',
+        '',
+        '=== YOUR ANALYSIS TASK ===',
+        '',
+        'Analyze this proposed trade from TWO distinct perspectives:',
+        '',
+        'PERSPECTIVE 1 -- THE BULL CASE (Why this could work):',
+        '- What are the strongest arguments FOR this trade?',
+        '- What catalysts, fundamentals, or technical factors support it?',
+        '- Under what market conditions does this trade succeed?',
+        '- What is the realistic upside scenario?',
+        '',
+        'PERSPECTIVE 2 -- THE BEAR CASE (Why this could fail):',
+        '- What are the strongest arguments AGAINST this trade?',
+        '- What risks, red flags, or headwinds could hurt this trade?',
+        '- What does the market know that might make this a bad idea?',
+        '- What is the realistic downside scenario?',
+        '',
+        'FINAL VERDICT:',
+        'Rate this trade idea on this exact scale:',
+        '  [ ] REALLY BAD -- Strong conviction against, serious red flags',
+        '  [ ] BAD -- More negatives than positives, risk/reward unfavorable',
+        '  [ ] NEUTRAL -- Reasonable idea but no clear edge, wait for better setup',
+        '  [ ] GOOD -- Solid risk/reward, more positives than negatives',
+        '  [ ] REALLY GOOD -- High conviction, strong thesis, favorable timing',
+        '  [ ] EXCELLENT -- Exceptional opportunity, multiple tailwinds aligned',
+        '',
+        'For the verdict, put an X in the bracket [X] and explain in 2-3 sentences WHY you chose that rating.',
+        '',
+        perspective==='contrarian'?
+          'IMPORTANT: Play devil\'s advocate aggressively. Challenge any conventional wisdom about this stock. Look for what the consensus might be wrong about in BOTH directions. Be specific, blunt, and do not be diplomatic.' :
+          'IMPORTANT: Be specific to this exact stock, this exact action type, and this investor\'s profile. Do not give generic investment advice. Name specific risks and catalysts. Use current market context.',
+        '',
+        '=== END OF REQUEST ===',
+      ].filter(function(l){return l!==null&&l!==undefined&&l!==false&&l!=='';}).join('\n');
+
+      return prompt;
+    }
+
+    var prompts=generated?{
+      standard:   buildPrompt('standard'),
+      contrarian: buildPrompt('contrarian'),
+    }:null;
+
+    function copyPrompt(text, id){
+      navigator.clipboard.writeText(text).then(function(){
+        var btn=document.getElementById('copybtn_'+id);
+        if(btn){btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy Prompt';},2000);}
+      }).catch(function(){
+        var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
+        var btn=document.getElementById('copybtn_'+id);
+        if(btn){btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy Prompt';},2000);}
+      });
+    }
+
+    return h('div',null,
+      /* Header */
+      h('div',{className:'card',style:{marginBottom:14}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:4}},
+          h('div',{style:{width:36,height:36,background:'rgba(77,158,255,.15)',border:'1px solid rgba(77,158,255,.4)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},
+            h('i',{className:'ti ti-prompt',style:{fontSize:18,color:C.blue}})),
+          h('div',null,
+            h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'AI Trade Advisor Prompt Generator'),
+            h('div',{style:{fontSize:11,color:C.muted}},'Fill in your trade details, check which research sources to include, then copy the generated prompt into any AI agent.')
+          )
+        )
+      ),
+
+      /* Form */
+      h('div',{className:'card',style:{marginBottom:14}},
+        h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}},
+          /* Left column */
+          h('div',null,
+            h('div',{style:{fontSize:12,fontWeight:700,color:C.textB,marginBottom:8}},h('i',{className:'ti ti-user',style:{color:C.blue,marginRight:6}}),'Investor Profile'),
+            h('div',{style:{marginBottom:8}},
+              h('label',{style:{fontSize:10,color:C.muted,display:'block',marginBottom:3}},'Experience Level'),
+              h('select',{className:'finp',value:invLevel,onChange:function(e){setInvLevel(e.target.value);}},
+                h('option',{value:'novice'},'Novice (0-2 years)'),
+                h('option',{value:'experienced'},'Experienced (5-15 years)'),
+                h('option',{value:'professional'},'Professional (15+ years)')
+              )
+            ),
+            h('div',{style:{marginBottom:8}},
+              h('label',{style:{fontSize:10,color:C.muted,display:'block',marginBottom:3}},'Risk Tolerance'),
+              h('select',{className:'finp',value:riskLevel,onChange:function(e){setRiskLevel(e.target.value);}},
+                h('option',{value:'conservative'},'Conservative'),
+                h('option',{value:'moderate'},'Moderate'),
+                h('option',{value:'aggressive'},'Aggressive'),
+                h('option',{value:'vhigh'},'Very Aggressive / Speculative')
+              )
+            ),
+            h('div',{style:{marginBottom:8}},
+              h('label',{style:{fontSize:10,color:C.muted,display:'block',marginBottom:3}},'Investment Horizon'),
+              h('select',{className:'finp',value:timeHorizon,onChange:function(e){setTimeHorizon(e.target.value);}},
+                h('option',{value:'short'},'Short-Term (days to 3 months)'),
+                h('option',{value:'medium'},'Medium-Term (3-12 months)'),
+                h('option',{value:'long'},'Long-Term (1-5+ years)')
+              )
+            )
+          ),
+          /* Right column */
+          h('div',null,
+            h('div',{style:{fontSize:12,fontWeight:700,color:C.textB,marginBottom:8}},h('i',{className:'ti ti-chart-candle',style:{color:C.purple,marginRight:6}}),'Trade Details'),
+            h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:6}},
+              h('div',null,
+                h('label',{style:{fontSize:10,color:C.muted,display:'block',marginBottom:3}},'Ticker Symbol *'),
+                h('input',{type:'text',className:'finp',autoComplete:'off',placeholder:'e.g. NVDA',
+                  value:ticker,onChange:function(e){setTicker(e.target.value.toUpperCase());setGenerated(false);}})
+              ),
+              h('div',null,
+                h('label',{style:{fontSize:10,color:C.muted,display:'block',marginBottom:3}},'Action Type'),
+                h('select',{className:'finp',value:action,onChange:function(e){setAction(e.target.value);setGenerated(false);}},
+                  h('option',{value:'buy'},'Buy (Long)'),
+                  h('option',{value:'sell'},'Sell Position'),
+                  h('option',{value:'short'},'Short Sell'),
+                  h('option',{value:'options'},'Options Strategy'),
+                  h('option',{value:'dca'},'Dollar-Cost Average'),
+                  h('option',{value:'hold'},'Hold & Monitor')
+                )
+              )
+            ),
+            h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:6}},
+              h('div',null,
+                h('label',{style:{fontSize:10,color:C.muted,display:'block',marginBottom:3}},'Number of Shares'),
+                h('input',{type:'text',className:'finp',autoComplete:'off',placeholder:'e.g. 50',
+                  value:shares,onChange:function(e){setShares(e.target.value);setGenerated(false);}})
+              ),
+              h('div',null,
+                h('label',{style:{fontSize:10,color:C.muted,display:'block',marginBottom:3}},
+                  action==='sell'||action==='short'?'Proceeds / Position Value':'Budget to Invest ($)'),
+                h('input',{type:'text',className:'finp',autoComplete:'off',placeholder:'e.g. 5000',
+                  value:budget,onChange:function(e){setBudget(e.target.value);setGenerated(false);}})
+              )
+            ),
+            h('div',{style:{marginBottom:6}},
+              h('label',{style:{fontSize:10,color:C.muted,display:'block',marginBottom:3}},'Max Loss I Can Afford ($)'),
+              h('input',{type:'text',className:'finp',autoComplete:'off',placeholder:'e.g. 500 (this helps AI size risk correctly)',
+                value:maxLoss,onChange:function(e){setMaxLoss(e.target.value);setGenerated(false);}})
+            ),
+            h('div',null,
+              h('label',{style:{fontSize:10,color:C.muted,display:'block',marginBottom:3}},'Additional Context (optional)'),
+              h('input',{type:'text',className:'finp',autoComplete:'off',placeholder:'e.g. already own 50 shares, watching for earnings catalyst',
+                value:extraNotes,onChange:function(e){setExtraNotes(e.target.value);setGenerated(false);}})
+            )
+          )
+        ),
+
+        /* Research checkboxes */
+        h('div',{style:{borderTop:'1px solid '+C.brd,paddingTop:10}},
+          h('div',{style:{fontSize:12,fontWeight:700,color:C.textB,marginBottom:8}},
+            h('i',{className:'ti ti-checklist',style:{color:C.teal,marginRight:6}}),
+            'Include these research sources in the analysis:',
+            h('button',{style:{fontSize:9,marginLeft:8,background:'none',border:'1px solid '+C.brd,borderRadius:3,padding:'1px 6px',cursor:'pointer',color:C.muted},
+              onClick:function(){var all=RESEARCH_TYPES.every(function(r){return resChecks[r.id];});var n={};RESEARCH_TYPES.forEach(function(r){n[r.id]=!all;});setResChecks(n);}},
+              'Toggle All')
+          ),
+          h('div',{style:{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:4}},
+            RESEARCH_TYPES.map(function(rt){
+              return h('label',{key:rt.id,style:{display:'flex',alignItems:'center',gap:6,cursor:'pointer',fontSize:11,color:resChecks[rt.id]?C.textB:C.muted,padding:'3px 0'}},
+                h('input',{type:'checkbox',checked:!!resChecks[rt.id],
+                  onChange:function(){toggleRes(rt.id);setGenerated(false);},
+                  style:{width:13,height:13,cursor:'pointer',accentColor:C.blue}}),
+                rt.label
+              );
+            })
+          )
+        ),
+
+        /* Generate button */
+        h('div',{style:{display:'flex',justifyContent:'center',marginTop:14}},
+          h('button',{className:'btn btn-p',style:{fontSize:13,padding:'10px 32px'},
+            onClick:function(){if(!ticker.trim()){alert('Enter a ticker symbol first.');return;}setGenerated(true);},
+            disabled:!ticker.trim()},
+            h('i',{className:'ti ti-wand',style:{marginRight:6}}),
+            'Generate AI Trade Analysis Prompts')
+        )
+      ),
+
+      /* Generated prompts */
+      generated&&prompts?h('div',null,
+        /* AI Agent links */
+        h('div',{className:'card',style:{marginBottom:10,borderColor:C.teal+'40'}},
+          h('div',{style:{fontSize:12,fontWeight:700,color:C.textB,marginBottom:8}},
+            h('i',{className:'ti ti-robot',style:{color:C.teal,marginRight:6}}),
+            'Paste your prompt into any of these AI agents:'),
+          h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+            AI_AGENTS.map(function(a){
+              return h('a',{key:a.id,href:a.url,target:'_blank',rel:'noopener noreferrer',
+                style:{display:'flex',alignItems:'center',gap:5,background:a.color+'15',
+                  border:'1px solid '+a.color+'40',borderRadius:6,padding:'6px 12px',
+                  fontSize:11,color:a.color,textDecoration:'none',fontWeight:600}},
+                h('i',{className:'ti '+a.icon,style:{fontSize:14}}),
+                a.name,
+                h('i',{className:'ti ti-external-link',style:{fontSize:9}})
+              );
+            })
+          )
+        ),
+
+        /* Standard prompt */
+        h('div',{className:'card',style:{marginBottom:10,borderColor:C.blue+'40'}},
+          h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}},
+            h('div',null,
+              h('div',{style:{fontSize:13,fontWeight:700,color:C.textB}},
+                h('i',{className:'ti ti-file-text',style:{color:C.blue,marginRight:6}}),
+                'Standard Analysis Prompt -- ' + ticker.toUpperCase()),
+              h('div',{style:{fontSize:10,color:C.muted}},'Bull case, bear case, and verdict rating for '+action+' '+ticker)
+            ),
+            h('button',{id:'copybtn_standard',className:'btn btn-p',style:{fontSize:11},
+              onClick:function(){copyPrompt(prompts.standard,'standard');}},
+              'Copy Prompt')
+          ),
+          h('pre',{style:{background:C.surf2,border:'1px solid '+C.brd,borderRadius:5,
+            padding:'12px 14px',fontSize:10,color:C.muted2,whiteSpace:'pre-wrap',
+            wordBreak:'break-word',maxHeight:300,overflowY:'auto',fontFamily:'monospace',lineHeight:1.6,margin:0}},
+            prompts.standard)
+        ),
+
+        /* Contrarian / devil's advocate prompt */
+        h('div',{className:'card',style:{marginBottom:10,borderColor:C.warn+'40'}},
+          h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}},
+            h('div',null,
+              h('div',{style:{fontSize:13,fontWeight:700,color:C.textB}},
+                h('i',{className:'ti ti-devil',style:{color:C.warn,marginRight:6}}),
+                'Contrarian / Devil\'s Advocate Prompt'),
+              h('div',{style:{fontSize:10,color:C.muted}},'Aggressively challenges conventional wisdom -- use this to stress-test your thesis')
+            ),
+            h('button',{id:'copybtn_contrarian',className:'btn btn-d',style:{fontSize:11},
+              onClick:function(){copyPrompt(prompts.contrarian,'contrarian');}},
+              'Copy Prompt')
+          ),
+          h('pre',{style:{background:C.surf2,border:'1px solid '+C.brd,borderRadius:5,
+            padding:'12px 14px',fontSize:10,color:C.muted2,whiteSpace:'pre-wrap',
+            wordBreak:'break-word',maxHeight:300,overflowY:'auto',fontFamily:'monospace',lineHeight:1.6,margin:0}},
+            prompts.contrarian)
+        ),
+
+        /* Rating scale reference */
+        h('div',{className:'card',style:{borderColor:C.muted+'30'}},
+          h('div',{style:{fontSize:11,fontWeight:700,color:C.textB,marginBottom:8}},
+            h('i',{className:'ti ti-scale',style:{color:C.muted,marginRight:5}}),
+            'Rating Scale Reference -- what to look for in the AI response:'),
+          h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}},
+            [['REALLY BAD',C.red,'Avoid -- significant capital risk, strong red flags'],
+             ['BAD',C.red+'aa','Unfavorable -- more risks than rewards'],
+             ['NEUTRAL',C.muted,'No clear edge -- wait for a better setup'],
+             ['GOOD',C.green+'88','Solid thesis -- acceptable risk/reward ratio'],
+             ['REALLY GOOD',C.green,'High conviction -- strong setup, clear thesis'],
+             ['EXCELLENT','#FFD700','Exceptional -- rare, multiple tailwinds aligned'],
+            ].map(function(x){
+              return h('div',{key:x[0],style:{background:x[1]+'10',border:'1px solid '+x[1]+'30',borderRadius:4,padding:'6px 8px',textAlign:'center'}},
+                h('div',{style:{fontSize:10,fontWeight:700,color:x[1]}},x[0]),
+                h('div',{style:{fontSize:9,color:C.muted,marginTop:2,lineHeight:1.3}},x[2])
+              );
+            })
+          )
+        )
+      ):null
+    );
+  }
+
+  function TabAnalystRatings(){
+    var sst=useState('all'),filterSector=sst[0],setFilterSector=sst[1];
+    var ssf=useState(''),filterSearch=ssf[0],setFilterSearch=ssf[1];
+    var ssel=useState(null),selTicker=ssel[0],setSelTicker=ssel[1];
+
+    /* Major analyst ratings -- aggregated from leading investment research firms
+       Ratings: Strong Buy, Buy, Hold, Underperform, Sell
+       PT = consensus price target. Updated reflects most recent analyst consensus. */
+    var ANALYST_DATA=[
+      /* Technology */
+      {ticker:'NVDA', name:'Nvidia',            sector:'Technology',  rating:'Strong Buy', pt:175, prev:156, firms:28, buy:25,hold:3, sell:0, yield:0.03,mc:'$3.1T', note:'AI GPU supercycle; Blackwell demand exceeding supply through 2026. Top pick across 15+ desks.'},
+      {ticker:'MSFT', name:'Microsoft',          sector:'Technology',  rating:'Strong Buy', pt:510, prev:465, firms:30, buy:27,hold:3, sell:0, yield:0.72,mc:'$3.0T', note:'Azure AI growth re-accelerating. Copilot monetization exceeding expectations.'},
+      {ticker:'AAPL', name:'Apple',              sector:'Technology',  rating:'Buy',        pt:240, prev:225, firms:30, buy:20,hold:8, sell:2, yield:0.47,mc:'$3.2T', note:'AI iPhone supercycle building; services growth durable. India manufacturing diversification positive.'},
+      {ticker:'META', name:'Meta Platforms',     sector:'Technology',  rating:'Strong Buy', pt:680, prev:580, firms:29, buy:26,hold:3, sell:0, yield:0,   mc:'$1.4T', note:'Advertising recovery + AI integration into Reels. Llama 4 open-source strategy paying off.'},
+      {ticker:'GOOGL',name:'Alphabet',           sector:'Technology',  rating:'Buy',        pt:210, prev:195, firms:31, buy:24,hold:6, sell:1, yield:0,   mc:'$2.0T', note:'Search defended vs AI; YouTube growing; Cloud re-accelerating. Gemini integration risk/reward positive.'},
+      {ticker:'AMZN', name:'Amazon',             sector:'Technology',  rating:'Strong Buy', pt:260, prev:225, firms:31, buy:29,hold:2, sell:0, yield:0,   mc:'$2.3T', note:'AWS growth >17% sustained. Advertising $50B+. Retail margins best ever. Prime Video monetizing.'},
+      {ticker:'TSLA', name:'Tesla',              sector:'Technology',  rating:'Hold',       pt:285, prev:250, firms:30, buy:10,hold:12,sell:8, yield:0,   mc:'$900B',  note:'FSD progress real but priced in. Energy storage strong. Autonomous robotaxi timeline uncertain.'},
+      {ticker:'PLTR', name:'Palantir',           sector:'Technology',  rating:'Buy',        pt:130, prev:95,  firms:18, buy:10,hold:5, sell:3, yield:0,   mc:'$290B',  note:'AIP (AI Platform) enterprise adoption accelerating. US Commercial revenue +55% YoY. Premium valuation divisive.'},
+      {ticker:'AMD',  name:'Advanced Micro Dev', sector:'Technology',  rating:'Buy',        pt:185, prev:160, firms:28, buy:22,hold:5, sell:1, yield:0,   mc:'$300B',  note:'MI300X GPU competitive; data center share gains. PC/gaming recovery. EPYC server CPU dominant.'},
+      {ticker:'INTC', name:'Intel',              sector:'Technology',  rating:'Hold',       pt:28,  prev:25,  firms:28, buy:5, hold:14,sell:9, yield:2.4, mc:'$115B',  note:'Foundry turnaround long-term; near-term headwinds. 18A process node key catalyst watch.'},
+      {ticker:'AVGO', name:'Broadcom',           sector:'Technology',  rating:'Strong Buy', pt:295, prev:265, firms:24, buy:22,hold:2, sell:0, yield:1.5, mc:'$1.1T',  note:'Custom AI silicon (XPU) franchise; VMware integration on track. Dividend growth compounder.'},
+      {ticker:'CRM',  name:'Salesforce',         sector:'Technology',  rating:'Buy',        pt:325, prev:295, firms:30, buy:22,hold:7, sell:1, yield:0.6, mc:'$315B',  note:'Agentforce AI platform differentiated. Free cash flow yield attractive. Data Cloud competitive moat.'},
+      {ticker:'NOW',  name:'ServiceNow',         sector:'Technology',  rating:'Strong Buy', pt:1150,prev:1020,firms:25, buy:23,hold:2, sell:0, yield:0,   mc:'$180B',  note:'AI Now platform accelerating enterprise workflows. Retention rates >98%. Rule of 40 leader.'},
+      /* Semiconductors */
+      {ticker:'QCOM', name:'Qualcomm',           sector:'Semis',       rating:'Buy',        pt:210, prev:190, firms:24, buy:17,hold:7, sell:0, yield:2.2, mc:'$230B',  note:'Snapdragon AI PC chip gaining share. Auto + IoT diversification offsetting mobile slowdown.'},
+      {ticker:'TXN',  name:'Texas Instruments',  sector:'Semis',       rating:'Hold',       pt:195, prev:185, firms:20, buy:8, hold:10,sell:2, yield:3.0, mc:'$180B',  note:'Inventory correction largely behind. Analog recovery beginning. 300mm fab cost advantage.'},
+      {ticker:'AMAT', name:'Applied Materials',  sector:'Semis',       rating:'Strong Buy', pt:245, prev:215, firms:22, buy:20,hold:2, sell:0, yield:0.9, mc:'$185B',  note:'Equipment spending recovery + GAA transistor enabling equipment. Durable equipment cycle.'},
+      /* Healthcare */
+      {ticker:'LLY',  name:'Eli Lilly',          sector:'Healthcare',  rating:'Strong Buy', pt:1050,prev:920, firms:26, buy:24,hold:2, sell:0, yield:0.6, mc:'$940B',  note:'Mounjaro/Zepbound GLP-1 supply/demand mismatch. Pipeline depth: alzheimers, NASH, kidney.'},
+      {ticker:'UNH',  name:'UnitedHealth',       sector:'Healthcare',  rating:'Buy',        pt:620, prev:565, firms:24, buy:18,hold:5, sell:1, yield:1.7, mc:'$575B',  note:'Optum ecosystem margin recovery. Medicare Advantage rate headwind temporary. Long-term FCF compounder.'},
+      {ticker:'ABBV', name:'AbbVie',             sector:'Healthcare',  rating:'Buy',        pt:220, prev:200, firms:22, buy:16,hold:5, sell:1, yield:3.4, mc:'$385B',  note:'Skyrizi/Rinvoq offsetting Humira biosimilar. Oncology pipeline maturing. 50+ year dividend growth.'},
+      {ticker:'JNJ',  name:'Johnson & Johnson',  sector:'Healthcare',  rating:'Hold',       pt:165, prev:155, firms:20, buy:8, hold:10,sell:2, yield:3.2, mc:'$395B',  note:'MedTech spinoff complete. Oncology pipeline solid. Litigation (talc) overhang persists.'},
+      {ticker:'MRK',  name:'Merck',              sector:'Healthcare',  rating:'Strong Buy', pt:140, prev:125, firms:22, buy:19,hold:3, sell:0, yield:3.0, mc:'$220B',  note:'Keytruda franchise durable through 2028. Winrevair (PAH) commercial launch strong. Cardiovascular pipeline.'},
+      /* Financials */
+      {ticker:'JPM',  name:'JPMorgan Chase',     sector:'Financials',  rating:'Strong Buy', pt:290, prev:265, firms:24, buy:21,hold:3, sell:0, yield:2.0, mc:'$680B',  note:'Best-in-class universal bank. Net interest income resilient. Investment banking fees recovering sharply.'},
+      {ticker:'BAC',  name:'Bank of America',    sector:'Financials',  rating:'Buy',        pt:48,  prev:43,  firms:22, buy:16,hold:5, sell:1, yield:2.5, mc:'$345B',  note:'Consumer banking franchise + Merrill wealth. NIM expansion. Trading revenues strong.'},
+      {ticker:'GS',   name:'Goldman Sachs',      sector:'Financials',  rating:'Buy',        pt:620, prev:565, firms:20, buy:15,hold:5, sell:0, yield:2.3, mc:'$200B',  note:'M&A advisory recovery + asset management AUM growth. Marcus wind-down removes drag.'},
+      {ticker:'V',    name:'Visa',               sector:'Financials',  rating:'Strong Buy', pt:340, prev:310, firms:30, buy:27,hold:3, sell:0, yield:0.8, mc:'$670B',  note:'Network effects unassailable. Payment volume growth durable. 80%+ operating margin. Cross-border recovery.'},
+      {ticker:'MA',   name:'Mastercard',         sector:'Financials',  rating:'Strong Buy', pt:560, prev:515, firms:28, buy:25,hold:3, sell:0, yield:0.6, mc:'$550B',  note:'Similar thesis to Visa. Value-added services (Cyber, Loyalty) growing faster than core. EM tailwind.'},
+      /* Energy */
+      {ticker:'XOM',  name:'ExxonMobil',         sector:'Energy',      rating:'Buy',        pt:135, prev:122, firms:22, buy:16,hold:5, sell:1, yield:3.5, mc:'$515B',  note:'Pioneer integration expanding Permian dominance. Guyana production ramping. $20B+ buyback sustainable.'},
+      {ticker:'CVX',  name:'Chevron',            sector:'Energy',      rating:'Buy',        pt:175, prev:160, firms:20, buy:14,hold:5, sell:1, yield:4.7, mc:'$280B',  note:'Hess acquisition adds Guyana exposure. Permian production + TCO expansion. Dividend growth 37+ years.'},
+      {ticker:'OXY',  name:'Occidental Pete',    sector:'Energy',      rating:'Hold',       pt:56,  prev:52,  firms:18, buy:8, hold:8, sell:2, yield:1.8, mc:'$47B',   note:'Berkshire Hathaway accumulation signal positive. CrownRock integration. Carbon capture ESG optionality.'},
+      /* Defense */
+      {ticker:'LMT',  name:'Lockheed Martin',    sector:'Defense',     rating:'Buy',        pt:560, prev:525, firms:18, buy:13,hold:4, sell:1, yield:2.7, mc:'$205B',  note:'F-35 multi-decade program + hypersonic + missile defense. NATO spending tailwind. ROIC compounder.'},
+      {ticker:'RTX',  name:'RTX Corporation',    sector:'Defense',     rating:'Strong Buy', pt:155, prev:138, firms:18, buy:15,hold:3, sell:0, yield:2.0, mc:'$200B',  note:'GTF engine issue largely resolved. Pratt + Collins Aerospace aftermarket revenue accelerating.'},
+      {ticker:'NOC',  name:'Northrop Grumman',   sector:'Defense',     rating:'Buy',        pt:520, prev:488, firms:16, buy:12,hold:3, sell:1, yield:1.9, mc:'$65B',   note:'B-21 Raider production; GBSD (ICBM replacement) decade-long program. Space segment growing.'},
+      {ticker:'GE',   name:'GE Aerospace',       sector:'Defense',     rating:'Strong Buy', pt:225, prev:198, firms:20, buy:18,hold:2, sell:0, yield:0.7, mc:'$245B',  note:'LEAP engine backlog 14,000+ units; aftermarket services dominant. Narrowbody recovery adds to upside.'},
+      /* Consumer */
+      {ticker:'AMZN', name:'Amazon',             sector:'Consumer',    rating:'Strong Buy', pt:260, prev:225, firms:31, buy:29,hold:2, sell:0, yield:0,   mc:'$2.3T',  note:'See Technology.'},
+      {ticker:'COST', name:'Costco',             sector:'Consumer',    rating:'Buy',        pt:980, prev:900, firms:22, buy:16,hold:5, sell:1, yield:0.5, mc:'$440B',  note:'Membership fee increase ahead. Private label Kirkland growing share. International expansion Japan/Korea.'},
+      {ticker:'HD',   name:'Home Depot',         sector:'Consumer',    rating:'Buy',        pt:395, prev:365, firms:22, buy:16,hold:5, sell:1, yield:2.5, mc:'$393B',  note:'Pro customer (contractors) resilient vs. DIY. SRS Distribution acquisition adds $6.4B revenue.'},
+      {ticker:'WMT',  name:'Walmart',            sector:'Consumer',    rating:'Strong Buy', pt:105, prev:92,  firms:24, buy:21,hold:3, sell:0, yield:1.0, mc:'$850B',  note:'Advertising revenue >$3B; marketplace growing. Sams Club margins expanding. Flipkart optionality.'},
+    ];
+
+    var sectors=['all'].concat(ANALYST_DATA.reduce(function(a,s){if(a.indexOf(s.sector)<0)a.push(s.sector);return a;},[]));
+    var filtered=ANALYST_DATA.filter(function(s){
+      if(filterSector!=='all'&&s.sector!==filterSector)return false;
+      if(filterSearch&&s.ticker.indexOf(filterSearch.toUpperCase())<0&&s.name.toLowerCase().indexOf(filterSearch.toLowerCase())<0)return false;
+      return true;
+    });
+
+    var RC={'Strong Buy':C.green,'Buy':'#4ade80','Hold':C.warn,'Underperform':'#f97316','Sell':C.red};
+    var RIcon={'Strong Buy':'ti-trending-up','Buy':'ti-arrow-up','Hold':'ti-minus','Underperform':'ti-arrow-down','Sell':'ti-trending-down'};
+
+    /* Flag if user holds a stock */
+    function inPort(t){return positions.some(function(p){return p.ticker===t;});}
+    function inWatch(t){return watchlist.some(function(w){return w.ticker===t;});}
+
+    return h('div',null,
+      h('div',{className:'card',style:{marginBottom:14}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:12}},
+          h('div',{style:{width:36,height:36,background:'rgba(250,204,21,.15)',border:'1px solid rgba(250,204,21,.4)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},
+            h('i',{className:'ti ti-star',style:{fontSize:18,color:C.gold}})),
+          h('div',null,
+            h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'Wall Street Analyst Ratings'),
+            h('div',{style:{fontSize:11,color:C.muted}},'Consensus ratings & price targets from 20-31 major sell-side research desks. Updated quarterly.')),
+          h(SeedBadge,null)
+        ),
+        h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}},
+          h('input',{type:'text',className:'finp',autoComplete:'off',placeholder:'Search ticker or name...',
+            value:filterSearch,onChange:function(e){setFilterSearch(e.target.value);},
+            style:{width:180,fontSize:11}}),
+          sectors.map(function(s){
+            return h('button',{key:s,className:'tgl'+(filterSector===s?' active':''),
+              onClick:function(){setFilterSector(s);}},
+              s==='all'?'All Sectors':s);
+          })
+        )
+      ),
+
+      /* Summary stats */
+      h('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:14}},
+        [
+          ['Strong Buy',ANALYST_DATA.filter(function(s){return s.rating==='Strong Buy';}).length,C.green],
+          ['Buy',ANALYST_DATA.filter(function(s){return s.rating==='Buy';}).length,'#4ade80'],
+          ['Hold',ANALYST_DATA.filter(function(s){return s.rating==='Hold';}).length,C.warn],
+          ['Sell/Under',ANALYST_DATA.filter(function(s){return s.rating==='Sell'||s.rating==='Underperform';}).length,C.red],
+        ].map(function(x){
+          return h('div',{key:x[0],className:'card',style:{textAlign:'center',borderColor:x[2]+'30',background:x[2]+'06',padding:'10px 8px'}},
+            h('div',{style:{fontSize:22,fontWeight:700,color:x[2],fontFamily:C.mono}},x[1]),
+            h('div',{style:{fontSize:10,color:C.muted}},x[0])
+          );
+        })
+      ),
+
+      /* Ratings grid */
+      h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+        filtered.map(function(s){
+          var isSel=selTicker===s.ticker;
+          var port=inPort(s.ticker);
+          var watch=inWatch(s.ticker);
+          var upside=s.pt&&s.prev?((s.pt-s.prev)/s.prev*100):0;
+          var pct=s.firms>0?((s.buy/s.firms)*100):0;
+          return h('div',{key:s.ticker+s.sector,className:'card',
+            style:{borderColor:port?C.blue+'40':watch?C.teal+'30':C.brd,background:port?C.blue+'04':C.surf,cursor:'pointer'},
+            onClick:function(){setSelTicker(isSel?null:s.ticker);}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+              h('div',{style:{width:42,height:42,background:RC[s.rating]+'18',border:'1px solid '+RC[s.rating]+'35',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},
+                h('i',{className:'ti '+RIcon[s.rating],style:{fontSize:18,color:RC[s.rating]}})),
+              h('div',{style:{flex:1,minWidth:120}},
+                h('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
+                  h('span',{style:{fontFamily:C.mono,fontWeight:700,fontSize:13,color:C.textB}},s.ticker),
+                  h('span',{style:{fontSize:11,color:C.muted}},s.name),
+                  port?h('span',{style:{fontSize:9,background:C.blue+'18',color:C.blue,border:'1px solid '+C.blue+'30',borderRadius:3,padding:'1px 5px',fontWeight:700}},'In Portfolio'):null,
+                  watch?h('span',{style:{fontSize:9,background:C.teal+'18',color:C.teal,border:'1px solid '+C.teal+'30',borderRadius:3,padding:'1px 5px',fontWeight:700}},'Watchlist'):null
+                ),
+                h('div',{style:{display:'flex',alignItems:'center',gap:8,marginTop:3,flexWrap:'wrap'}},
+                  h('span',{style:{fontSize:11,fontWeight:700,color:RC[s.rating]}},s.rating),
+                  h('span',{style:{fontSize:10,color:C.muted}},'PT: '),
+                  h('span',{style:{fontFamily:C.mono,fontSize:11,fontWeight:700,color:C.textB}},'$'+s.pt),
+                  upside>0?h('span',{style:{fontSize:10,color:C.green}},'+'+upside.toFixed(1)+'% upside'):
+                  h('span',{style:{fontSize:10,color:C.red}},upside.toFixed(1)+'% downside'),
+                  h('span',{style:{fontSize:10,color:C.muted}},s.sector),
+                  h('span',{style:{fontSize:10,color:C.muted2}},s.mc)
+                )
+              ),
+              /* Buy/Hold/Sell bar */
+              h('div',{style:{width:120,flexShrink:0}},
+                h('div',{style:{fontSize:9,color:C.muted,marginBottom:3,textAlign:'right'}},s.firms+' analysts'),
+                h('div',{style:{display:'flex',height:8,borderRadius:4,overflow:'hidden',gap:1}},
+                  h('div',{style:{width:(s.buy/s.firms*100)+'%',background:C.green,title:'Buy: '+s.buy}}),
+                  h('div',{style:{width:((s.firms-s.buy-s.sell)/s.firms*100)+'%',background:C.warn,title:'Hold'}}),
+                  s.sell>0?h('div',{style:{width:(s.sell/s.firms*100)+'%',background:C.red,title:'Sell: '+s.sell}}):null
+                ),
+                h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:8,color:C.muted,marginTop:2}},
+                  h('span',{style:{color:C.green}},s.buy+' buy'),
+                  h('span',{style:{color:C.red}},s.sell+' sell')
+                )
+              )
+            ),
+            /* Expanded note */
+            isSel?h('div',{style:{marginTop:10,paddingTop:10,borderTop:'1px solid '+C.brd+'60',fontSize:11,color:C.muted2,lineHeight:1.6}},
+              h('i',{className:'ti ti-notes',style:{color:C.blue,marginRight:5,fontSize:10}}),
+              s.note
+            ):null
+          );
+        })
+      )
+    );
+  }
+
+
+  /* ================================================================
+     TabMorningstar -- Morningstar Star Ratings & Fair Value Estimates
+     ================================================================ */
+  function TabMorningstar(){
+    var ssf=useState('all'),msFilter=ssf[0],setMsFilter=ssf[1];
+    var sss=useState(''),msSearch=sss[0],setMsSearch=sss[1];
+    var ssel=useState(null),msSel=ssel[0],setMsSel=ssel[1];
+
+    /* Morningstar ratings: 1-5 stars (5 = significantly undervalued)
+       Moat: Wide / Narrow / None  Uncertainty: Low/Medium/High/Very High/Extreme
+       FVE = Fair Value Estimate  Price = approximate current  Discount = upside vs FVE */
+    var MS_DATA=[
+      /* 5-Star (Significantly Undervalued) */
+      {ticker:'INTC', name:'Intel',              stars:5, fve:42,  price:23,  moat:'Wide',   uncertainty:'High',      sector:'Technology',  note:'Intel is significantly undervalued. Our fair value is $42 based on a recovery in foundry economics and 18A ramp. Wide moat from x86 ecosystem and long customer relationships.'},
+      {ticker:'PFE',  name:'Pfizer',             stars:5, fve:36,  price:25,  moat:'Wide',   uncertainty:'High',      sector:'Healthcare',  note:'Trading at 55% discount to our $36 FVE. Post-COVID revenue normalization near complete. Oncology pipeline underappreciated. Seagen acquisition adds durable revenue.'},
+      {ticker:'WBA',  name:'Walgreens',          stars:5, fve:22,  price:10,  moat:'None',   uncertainty:'Very High', sector:'Consumer',    note:'Deeply discounted; high risk. No moat. Store closure program and debt restructuring create recovery optionality at current price.'},
+      {ticker:'MRK',  name:'Merck',              stars:5, fve:145, price:90,  moat:'Wide',   uncertainty:'Medium',    sector:'Healthcare',  note:'Keytruda dominance undervalued by market. Pipeline depth (MK-1084, sotatercept) reduces cliff risk. Dividend growth story intact.'},
+      {ticker:'VZ',   name:'Verizon',            stars:5, fve:46,  price:41,  moat:'Narrow', uncertainty:'Low',       sector:'Telecom',     note:'Wide-moat telecom with 7%+ dividend yield trading at discount. Fixed wireless growth. C-band spectrum deployment nearly complete.'},
+      /* 4-Star (Undervalued) */
+      {ticker:'GOOGL',name:'Alphabet',           stars:4, fve:225, price:170, moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'Google Search moat underappreciated vs AI threat narrative. YouTube + Cloud worth $800B alone. Trading at 15x forward earnings ex-cash.'},
+      {ticker:'META', name:'Meta Platforms',     stars:4, fve:620, price:598, moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'Wide moat from network effects. AI-driven engagement growth + advertising efficiency gains. Reality Labs drag overweighted by market.'},
+      {ticker:'AMZN', name:'Amazon',             stars:4, fve:270, price:220, moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'AWS network effect and scale advantage. Advertising moat growing. Prime ecosystem retention rates >93%. DCF significantly above consensus.'},
+      {ticker:'JPM',  name:'JPMorgan Chase',     stars:4, fve:290, price:255, moat:'Wide',   uncertainty:'Low',       sector:'Financials',  note:'Best-positioned bank. Fortress balance sheet. Investment banking cyclical uplift ahead. Credit card franchise durable moat.'},
+      {ticker:'LMT',  name:'Lockheed Martin',    stars:4, fve:600, price:490, moat:'Wide',   uncertainty:'Low',       sector:'Defense',     note:'Wide moat: sole-source contracts, high switching costs, 35+ year programs. F-35 sustainment alone worth more than current market cap.'},
+      {ticker:'NOC',  name:'Northrop Grumman',   stars:4, fve:560, price:475, moat:'Wide',   uncertainty:'Low',       sector:'Defense',     note:'B-21 Raider program; GBSD (Sentinel ICBM). Space segment high-growth. Autonomous systems optionality not in consensus estimates.'},
+      {ticker:'RTX',  name:'RTX Corporation',    stars:4, fve:155, price:130, moat:'Wide',   uncertainty:'Low',       sector:'Defense',     note:'GTF engine overhang clearing. Pratt & Whitney aftermarket 25-year revenue tail. Collins Aerospace avionics durable.'},
+      {ticker:'WMT',  name:'Walmart',            stars:4, fve:115, price:98,  moat:'Wide',   uncertainty:'Low',       sector:'Consumer',    note:'Advertising + marketplace create new margin levers. International (Flipkart, Walmex) undervalued. Grocery moat unassailable at scale.'},
+      {ticker:'V',    name:'Visa',               stars:4, fve:360, price:320, moat:'Wide',   uncertainty:'Low',       sector:'Financials',  note:'Two-sided network impossibly difficult to replicate. Tap-to-pay + digital penetration 15-year runway. 80%+ operating margins durable.'},
+      {ticker:'ABBV', name:'AbbVie',             stars:4, fve:235, price:202, moat:'Wide',   uncertainty:'Medium',    sector:'Healthcare',  note:'Skyrizi/Rinvoq combined >$20B peak revenue forecast. Humira biosimilar impact fully absorbed. Oncology pipeline (NaviGEN) undervalued.'},
+      {ticker:'CVX',  name:'Chevron',            stars:4, fve:185, price:156, moat:'Narrow', uncertainty:'High',      sector:'Energy',      note:'Hess acquisition adds low-cost Guyana barrels. Dividend growth 37+ years; 4.7% yield at current price. Capital discipline improved.'},
+      /* 3-Star (Fairly Valued) */
+      {ticker:'NVDA', name:'Nvidia',             stars:3, fve:115, price:135, moat:'Wide',   uncertainty:'High',      sector:'Technology',  note:'Wide moat but stock pricing in perfection. CUDA ecosystem switching costs high. Our $115 FVE reflects 30x forward sales as fair. Premium justified short-term.'},
+      {ticker:'MSFT', name:'Microsoft',          stars:3, fve:490, price:480, moat:'Wide',   uncertainty:'Low',       sector:'Technology',  note:'Near fair value. Azure + Office ecosystem wide moat. Copilot monetization not fully reflected in estimates. Hold at current prices.'},
+      {ticker:'AAPL', name:'Apple',              stars:3, fve:215, price:210, moat:'Wide',   uncertainty:'Low',       sector:'Technology',  note:'Services moat (App Store, iCloud, Apple Pay) growing. Hardware replacement cycle elongating. India manufacturing adds supply resilience.'},
+      {ticker:'COST', name:'Costco',             stars:3, fve:940, price:968, moat:'Wide',   uncertainty:'Low',       sector:'Consumer',    note:'Exceptional business, priced accordingly. Membership model creates switching costs. Kirkland private label 30%+ gross margin.'},
+      {ticker:'LLY',  name:'Eli Lilly',          stars:3, fve:980, price:950, moat:'Wide',   uncertainty:'High',      sector:'Healthcare',  note:'GLP-1 pipeline is transformative. Our FVE reflects $980 on peak GLP-1 penetration and pipeline depth. Near fair value at current prices.'},
+      {ticker:'JNJ',  name:'Johnson & Johnson',  stars:3, fve:168, price:158, moat:'Wide',   uncertainty:'Low',       sector:'Healthcare',  note:'Diversified MedTech + pharma. Dividend Aristocrat 60+ years. Talc litigation overhang limits re-rating near term.'},
+      {ticker:'XOM',  name:'ExxonMobil',         stars:3, fve:130, price:115, moat:'Narrow', uncertainty:'High',      sector:'Energy',      note:'Pioneer acquisition transforms Permian position. Guyana low-cost barrels. $20B buyback sustainable at $65+ Brent. Fairly valued.'},
+      {ticker:'UNH',  name:'UnitedHealth',       stars:3, fve:590, price:545, moat:'Wide',   uncertainty:'Medium',    sector:'Healthcare',  note:'Optum Services high-margin growth. Medicare Advantage regulatory headwind near-term. Long-term FCF compounder at wide moat.'},
+      {ticker:'HD',   name:'Home Depot',         stars:3, fve:390, price:378, moat:'Wide',   uncertainty:'Low',       sector:'Consumer',    note:'Pro contractor business resilient. SRS Distribution $18B acquisition expands addressable market. Dividend Aristocrat.'},
+      {ticker:'MA',   name:'Mastercard',         stars:3, fve:545, price:530, moat:'Wide',   uncertainty:'Low',       sector:'Financials',  note:'Near fair value. Value-added services (Cyber & Intelligence, Loyalty) 20%+ growth adds margin expansion.'},
+      /* 2-Star (Overvalued) */
+      {ticker:'TSLA', name:'Tesla',              stars:2, fve:195, price:295, moat:'Narrow', uncertainty:'Extreme',   sector:'Technology',  note:'Significant uncertainty. EV first-mover advantage eroding. FSD and robotaxi optionality real but speculative at 55x forward earnings. Our $195 FVE assumes auto-only value.'},
+      {ticker:'AVGO', name:'Broadcom',           stars:2, fve:165, price:250, moat:'Wide',   uncertainty:'High',      sector:'Technology',  note:'Wide moat business, premium price. Custom AI silicon opportunity real. VMware integration better than feared. But 25x forward sales limits upside.'},
+      {ticker:'PLTR', name:'Palantir',           stars:2, fve:35,  price:120, moat:'Narrow', uncertainty:'Very High', sector:'Technology',  note:'AIP platform differentiated. Government contracts sticky. But 75x forward sales prices in decades of perfect execution. Fair value $35.'},
+      {ticker:'NOW',  name:'ServiceNow',         stars:2, fve:890, price:1050,moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'Outstanding business. Agentforce AI competitor pressure emerging. 50x forward earnings prices in sustained >25% growth. Some margin of safety needed.'},
+      {ticker:'CRM',  name:'Salesforce',         stars:3, fve:305, price:285, moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'Agentforce differentiated vs AI point solutions. Data Cloud real competitive moat. Near fair value after recent pullback.'},
+    ];
+
+    var filterOpts=['all','5-star','4-star','3-star','2-star','Wide Moat','Undervalued'];
+    var filtered=MS_DATA.filter(function(s){
+      if(msSearch&&s.ticker.indexOf(msSearch.toUpperCase())<0&&s.name.toLowerCase().indexOf(msSearch.toLowerCase())<0)return false;
+      if(msFilter==='5-star')return s.stars===5;
+      if(msFilter==='4-star')return s.stars===4;
+      if(msFilter==='3-star')return s.stars===3;
+      if(msFilter==='2-star')return s.stars===2;
+      if(msFilter==='Wide Moat')return s.moat==='Wide';
+      if(msFilter==='Undervalued')return s.stars>=4;
+      return true;
+    }).sort(function(a,b){return b.stars-a.stars||(b.fve-b.price)-(a.fve-a.price);});
+
+    function starRow(n,filled){
+      return Array.from({length:5},function(_,i){
+        return h('i',{key:i,className:'ti '+(i<n?'ti-star':'ti-star'),
+          style:{color:i<n?C.gold:'transparent',WebkitTextStroke:i<n?'0':'1px '+C.brd,fontSize:12}});
+      });
+    }
+
+    var MOAT_COL={Wide:C.green,Narrow:C.warn,None:C.muted};
+    var STAR_COL={5:C.green,4:'#4ade80',3:C.warn,2:'#f97316',1:C.red};
+    var UNCT_COL={Low:C.green,Medium:C.warn,High:'#f97316','Very High':C.red,Extreme:'#8b5cf6'};
+
+    function pct(s){
+      if(!s.price||!s.fve)return 0;
+      return ((s.fve-s.price)/s.price*100);
+    }
+
+    function inPort(t){return positions.some(function(p){return p.ticker===t;});}
+
+    return h('div',null,
+      h('div',{className:'card',style:{marginBottom:14}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:12}},
+          h('div',{style:{width:36,height:36,background:'rgba(250,204,21,.15)',border:'1px solid rgba(250,204,21,.4)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},
+            h('i',{className:'ti ti-star-half',style:{fontSize:18,color:C.gold}})),
+          h('div',{flex:1},
+            h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'Morningstar Star Ratings'),
+            h('div',{style:{fontSize:11,color:C.muted}},
+              '1-5 stars. 5 = significantly undervalued. Includes moat rating, fair value estimate, and uncertainty.')),
+          h(SeedBadge,null)
+        ),
+        /* Rating legend */
+        h('div',{style:{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:6,marginBottom:12}},
+          [[5,'Significant Buy','rgba(0,214,143,.1)','rgba(0,214,143,.4)',C.green],
+           [4,'Undervalued','rgba(74,222,128,.1)','rgba(74,222,128,.4)','#4ade80'],
+           [3,'Fairly Valued','rgba(245,200,32,.1)','rgba(245,200,32,.4)',C.warn],
+           [2,'Overvalued','rgba(249,115,22,.1)','rgba(249,115,22,.4)','#f97316'],
+           [1,'Strong Sell','rgba(255,69,69,.1)','rgba(255,69,69,.4)',C.red],
+          ].map(function(x){
+            return h('div',{key:x[0],style:{textAlign:'center',background:x[2],border:'1px solid '+x[3],borderRadius:5,padding:'8px 4px'}},
+              h('div',{style:{fontSize:10,color:x[4],fontWeight:700}},x[0]+' Star'),
+              h('div',{style:{fontSize:9,color:C.muted}},x[1])
+            );
+          })
+        ),
+        /* Search + filter */
+        h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+          h('input',{type:'text',className:'finp',autoComplete:'off',placeholder:'Search...',
+            value:msSearch,onChange:function(e){setMsSearch(e.target.value);},
+            style:{width:150,fontSize:11}}),
+          filterOpts.map(function(f){
+            return h('button',{key:f,className:'tgl'+(msFilter===f?' active':''),
+              onClick:function(){setMsFilter(f);}},f);
+          })
+        )
+      ),
+
+      /* Stock cards */
+      h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+        filtered.map(function(s){
+          var isSel=msSel===s.ticker;
+          var port=inPort(s.ticker);
+          var upside=pct(s);
+          var isUnder=upside>0;
+          return h('div',{key:s.ticker,className:'card',
+            style:{borderColor:port?C.blue+'40':isUnder?C.green+'30':upside<-10?C.red+'30':C.brd,
+              background:port?C.blue+'04':C.surf,cursor:'pointer'},
+            onClick:function(){setMsSel(isSel?null:s.ticker);}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+              /* Star display */
+              h('div',{style:{width:54,textAlign:'center',flexShrink:0}},
+                h('div',{style:{fontSize:24,fontWeight:900,color:STAR_COL[s.stars],fontFamily:C.mono,lineHeight:1}},s.stars),
+                h('div',{style:{fontSize:8,color:C.muted,marginTop:1}},Array.from({length:5},function(_,i){return i<s.stars?'*':'.';}).join('')+' star')
+              ),
+              /* Stock info */
+              h('div',{style:{flex:1,minWidth:130}},
+                h('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
+                  h('span',{style:{fontFamily:C.mono,fontWeight:700,fontSize:13,color:C.textB}},s.ticker),
+                  h('span',{style:{fontSize:11,color:C.muted}},s.name),
+                  port?h('span',{style:{fontSize:9,background:C.blue+'18',color:C.blue,border:'1px solid '+C.blue+'30',borderRadius:3,padding:'1px 5px',fontWeight:700}},'Held'):null
+                ),
+                h('div',{style:{display:'flex',alignItems:'center',gap:10,marginTop:4,flexWrap:'wrap'}},
+                  h('span',{style:{fontSize:10,color:MOAT_COL[s.moat],fontWeight:700}},s.moat+' Moat'),
+                  h('span',{style:{fontSize:10,color:UNCT_COL[s.uncertainty]||C.muted}},'Uncertainty: '+s.uncertainty),
+                  h('span',{style:{fontSize:10,color:C.muted}},s.sector)
+                )
+              ),
+              /* Fair value vs price */
+              h('div',{style:{textAlign:'right',flexShrink:0,minWidth:110}},
+                h('div',{style:{fontSize:11,color:C.muted,marginBottom:2}},'Fair Value Est.'),
+                h('div',{style:{fontFamily:C.mono,fontWeight:700,fontSize:15,color:C.textB}},'$'+s.fve),
+                h('div',{style:{fontSize:11,fontWeight:700,color:isUnder?C.green:C.red}},
+                  (isUnder?'+':'')+upside.toFixed(0)+'% '+(isUnder?'upside':'overvalued')),
+                h('div',{style:{fontSize:10,color:C.muted}},'~$'+s.price+' current est.')
+              )
+            ),
+            /* FVE vs price bar */
+            h('div',{style:{marginTop:8,height:5,background:C.brd,borderRadius:3,overflow:'hidden'}},
+              isUnder?
+                h('div',{style:{width:Math.min(100,(s.price/s.fve)*100)+'%',height:'100%',background:C.warn,borderRadius:3}}):
+                h('div',{style:{width:Math.min(100,(s.fve/s.price)*100)+'%',height:'100%',background:STAR_COL[s.stars]||C.red,borderRadius:3}})
+            ),
+            /* Expanded analyst note */
+            isSel?h('div',{style:{marginTop:10,paddingTop:10,borderTop:'1px solid '+C.brd+'60',fontSize:11,color:C.muted2,lineHeight:1.7}},
+              h('span',{style:{fontWeight:700,color:C.gold}},'Morningstar view: '),
+              s.note
+            ):null
+          );
+        })
+      )
+    );
+  }
+
   function TabWallFirms(){
 
     /* -- Firm definitions ------------------------------------------- */
@@ -16175,7 +17019,7 @@ function App(){
     function runAI(res){
       if(!hasAK){setAiMsg('ERROR: No AI key. Add OpenAI or Gemini in Settings.');return;}
       setAiLoad(true);setAiMsg('Running AI forecast analysis...');
-      var forecastPrices=res.forecast.map(function(f){return '$'+f.price?( +(+(""+"".concat(0))||0) ).toFixed(2):'0.00';}).join(', ');
+      var forecastPrices=res.forecast.map(function(f){return '$'+(+(f.price||0)).toFixed(2);}).join(', ');
       var prompt='You are a quantitative analyst. Analyze this price series data and provide a detailed forecast.\n\n'
         +'TICKER: '+(tickerInput||'Custom series')+'\n'
         +'DATA POINTS: '+res.n+' price observations\n'
@@ -16380,7 +17224,7 @@ function App(){
               var vs=((f.price-result.current)/result.current*100);
               return h('tr',{key:f.day},
                 h('td',{style:{fontFamily:C.mono,color:C.muted}},'Day '+f.day),
-                h('td',{style:{fontFamily:C.mono,fontWeight:700,color:C.textB}},'$'+f.price?( +(+(""+"".concat(0))||0) ).toFixed(2):'0.00'),
+                h('td',{style:{fontFamily:C.mono,fontWeight:700,color:C.textB}},'$'+(+(f.price||0)).toFixed(2)),
                 h('td',{style:{fontFamily:C.mono,color:C.green}},'$'+f.upper.toFixed(2)),
                 h('td',{style:{fontFamily:C.mono,color:C.red}},'$'+f.lower.toFixed(2)),
                 h('td',{style:{fontFamily:C.mono,color:vs>=0?C.green:C.red}},(vs>=0?'+':'')+vs.toFixed(1)+'%')
@@ -17002,7 +17846,7 @@ function App(){
         var pnlPct=p.avgCost>0?(p.price-p.avgCost)/p.avgCost*100:0;
         return p.ticker+': $'+(+(p.price||0)).toFixed(2)+' target $'+(p.target||0).toFixed(2)+' stop $'+(p.stop||0).toFixed(2)+' P&L '+(pnlPct>=0?'+':'')+pnlPct.toFixed(1)+'% score:'+p.score;
       }).join('\n');
-      var watch=watchlist.map(function(w){return w.ticker+': $'+w.price?( +(+(""+"".concat(0))||0) ).toFixed(2):'0.00'+' target $'+(w.target||0).toFixed(2)+' stop $'+(w.stop||0).toFixed(2);}).join('\n');
+      var watch=watchlist.map(function(w){return w.ticker+': $'+w.price?(+(w.price||0)).toFixed(2):'0.00'+' target $'+(w.target||0).toFixed(2)+' stop $'+(w.stop||0).toFixed(2);}).join('\n');
       var prompt='You are a portfolio risk manager. Review this portfolio and suggest specific alert triggers.\n\n'
         +'POSITIONS:\n'+port+'\n\nWATCHLIST:\n'+(watch||'none')+'\n\n'
         +'Plain text. EXACTLY this structure:\n\n'
@@ -17433,13 +18277,8 @@ function App(){
         h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:12}},
           h('div',{style:{width:36,height:36,background:'rgba(77,158,255,.15)',border:'1px solid rgba(77,158,255,.35)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center'}},h('i',{className:'ti ti-message-chatbot',style:{fontSize:18,color:C.blue}})),
           h('div',null,h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'AI Stock Advisor'),h('div',{style:{fontSize:11,color:C.muted}},'Enter ticker -> live price -> full BUY/SELL/HOLD report')),
-          h('button',{className:'btn btn-d',style:{fontSize:10,marginLeft:'auto'},
-          onClick:fetchLiveEarningsDates,disabled:fetchingDates},
-          fetchingDates?h('span',{className:'sp'}):h('i',{className:'ti ti-calendar-search'}),
-          ' Refresh Dates'),
         hasAK?h('div',null,aiBadge(activeAI)):null
         ),
-        fetchMsg?h('div',{style:{fontSize:10,color:fetchingDates?C.warn:C.teal,marginTop:4,marginBottom:4}},fetchMsg):null,
         !hasAK?h('div',{className:'banner bw'},h('i',{className:'ti ti-alert-circle'}),' No AI key configured.',Btn('btn-gold',{marginLeft:'auto',fontSize:10,padding:'4px 10px'},function(){setTab('settings');},false,'Add in Settings ->')):null,
         priceErr?h('div',{style:{background:'rgba(245,160,32,.1)',border:'1px solid rgba(245,160,32,.3)',borderRadius:4,padding:'6px 10px',fontSize:11,color:C.warn,marginBottom:10}},priceErr):null,
         h('div',{style:{display:'flex',gap:5,marginBottom:12}},
@@ -18276,6 +19115,8 @@ function App(){
     if(tab==='cttracker'){return h(TabCongressTracker,null);}
     if(tab==='congress'){return h(TabCongressWorld,null);}
     if(tab==='wallfirms'){return h(TabWallFirms,null);}
+    if(tab==='analystratings'){return h(TabAnalystRatings,null);}
+    if(tab==='morningstar'){return h(TabMorningstar,null);}
     if(tab==='funds'){return h(TabFunds,null);}
     if(tab==='options'){return h(TabOptions,null);}
     if(tab==='credit'){return h(TabCredit,null);}
@@ -18287,6 +19128,8 @@ function App(){
     if(tab==='advisor'){return h(TabAdvisor,null);}
     if(tab==='crypto'){return h(TabCrypto,null);}
     if(tab==='events'){return h(TabEventPlays,null);}
+    if(tab==='stockpicks'){return h(TabStockPicks,null);}
+    if(tab==='tradeprompt'){return h(TabTradePrompt,null);}
     if(tab==='settings'){return h(TabSettings,null);}
     return null;
   }
