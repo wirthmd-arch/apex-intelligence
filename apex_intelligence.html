@@ -346,11 +346,14 @@ const SEED_WATCH=[
   {id:11,ticker:"RTX",name:"RTX Corp",type:"stock",price:130,score:74,rec:"BUY",political:"HIGH_BUYING",inst:"BULLISH",leg:"POSITIVE",litRisk:"LOW",polScore:82,instScore:68,legScore:78,techScore:64,newsScore:74,macroScore:72,conf:0.74,entry:[128,134],target:158,stop:120,drivers:["NATO defense spending"],risks:["Supply chain"]},
 ];
 const SEED_ALERTS=[
-  {type:"CONGRESSIONAL BUY",ticker:"RTX",severity:"HIGH",detail:"3 House Armed Services members purchased 4,200 total shares",time:"09:47",date:"May 20, 2026"},
-  {type:"PRESIDENTIAL TRADE",ticker:"NVDA",severity:"HIGH",detail:"Executive branch official disclosed purchase of 1,200 shares",time:"11:15",date:"May 20, 2026"},
-  {type:"LEGISLATIVE CATALYST",ticker:"LMT",severity:"MEDIUM",detail:"Defense appropriations markup added $2.4B F-35 line",time:"13:02",date:"May 19, 2026"},
-  {type:"LIQUIDATION",ticker:"INTC",severity:"HIGH",detail:"Senator fully exited 3,800-share position",time:"10:33",date:"May 19, 2026"},
-  {type:"FUND FLOW",ticker:"VFIAX",severity:"LOW",detail:"$2.1B net inflows to broad market index funds this week",time:"12:40",date:"May 18, 2026"},
+  {type:"SECTOR ALERT",ticker:"NVDA",severity:"HIGH",detail:"AI chip export controls tightened -- NVDA H100/B200 exports to China restricted. Watch guidance revision.",time:"08:31",date:"Jun 5, 2026"},
+  {type:"CONGRESSIONAL BUY",ticker:"AVGO",severity:"HIGH",detail:"5 members of House Commerce Committee disclosed AVGO purchases totaling $2.8M this week.",time:"09:47",date:"Jun 4, 2026"},
+  {type:"LEGISLATIVE CATALYST",ticker:"LLY",severity:"HIGH",detail:"Senate Finance passed PBM reform bill 14-13. Could pressure GLP-1 pricing 12-18 months out.",time:"11:22",date:"Jun 4, 2026"},
+  {type:"EARNINGS CATALYST",ticker:"AAPL",severity:"MEDIUM",detail:"AAPL Q2 earnings Jun 18. Consensus $1.54 EPS. iPhone AI features driving upgrade cycle.",time:"10:15",date:"Jun 3, 2026"},
+  {type:"CONGRESSIONAL SELL",ticker:"INTC",severity:"HIGH",detail:"Sen. sold entire 6,200-share INTC position. Second senator exit in 30 days. Foundry concerns.",time:"13:44",date:"Jun 3, 2026"},
+  {type:"SPLIT ALERT",ticker:"META",severity:"MEDIUM",detail:"META 10:1 split effective Sep 5, 2026. Ex-date Sep 5. Currently ~$610 -> ~$61 post-split.",time:"09:00",date:"Jun 2, 2026"},
+  {type:"FUND FLOW",ticker:"SPY",severity:"LOW",detail:"$4.8B net inflows to US equity ETFs this week. Retail buying accelerating after May dip.",time:"12:40",date:"Jun 2, 2026"},
+  {type:"LIQUIDATION",ticker:"TSLA",severity:"MEDIUM",detail:"Three institutional holders reduced TSLA positions by combined 8.2M shares in May 13F filings.",time:"14:10",date:"Jun 1, 2026"},
 ];
 const SEED_RATES={fed:5.25,prime:8.50,rate30:6.82,rate15:6.14,arm:6.22,heloc:8.75,projections:[
   {period:"Q3 2026",fed:"4.75-5.00",r30:"6.40-6.60",r15:"5.80-6.00",note:"Fed likely cuts once if inflation cools"},
@@ -632,7 +635,7 @@ function DetailPanel(props){
     var pv=parseFloat(mp);
     if(!pv||pv<=0){alert('Enter a valid price.');return;}
     onManualUpdate(item.ticker,pv);setShowM(false);setMp('');
-    setMsg('Saved $'+pv.toFixed(2));setTimeout(function(){setMsg('');},4000);
+    setMsg('Saved $'+(+(pv||0)).toFixed(2));setTimeout(function(){setMsg('');},4000);
   }
   var factors=[['Political',item.polScore||30],['Institutional',item.instScore||55],['Legislation',item.legScore||50],['Technical',item.techScore||55],['News',item.newsScore||55],['Macro',item.macroScore||55]];
   return h('div',{style:{padding:'12px 14px',overflowY:'auto'}},
@@ -651,7 +654,7 @@ function DetailPanel(props){
     h('div',{style:{background:C.surf2,border:'1px solid '+(lp?C.green+'50':C.warn+'40'),borderRadius:6,padding:'10px 12px',marginBottom:10}},
       h('div',{style:{fontSize:10,color:C.muted,textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:3}},lp?'Live price':'Stored price'),
       h('div',{style:{fontFamily:C.mono,fontSize:21,fontWeight:700,color:lp?(lp.change>0?C.green:lp.change<0?C.red:C.textB):C.warn}},dollar(dp)),
-      (lp&&lp.change!=null)?h('div',{style:{fontFamily:C.mono,fontSize:11,color:lp.change>=0?C.green:C.red}},(lp.change>=0?'+':'')+lp.change.toFixed(2)+' ('+(lp.changePct>=0?'+':'')+lp.changePct.toFixed(2)+'%) today'):null,
+      (lp&&lp.change!=null)?h('div',{style:{fontFamily:C.mono,fontSize:11,color:lp.change>=0?C.green:C.red}},((+(lp.change||0))>=0?'+':'')+((+(lp.change||0)).toFixed(2))+' ('+((+(lp.changePct||0))>=0?'+':'')+((+(lp.changePct||0)).toFixed(2))+'%) today'):null,
       lp?h('div',{style:{fontSize:9,color:C.muted,fontFamily:C.mono,marginTop:2}},lp.tradingDay+' via '+lp.source):null,
       msg?h('div',{style:{fontSize:10,padding:'4px 8px',borderRadius:3,background:C.surf3,color:msg.indexOf('ail')>=0?C.warn:C.green,marginTop:6,marginBottom:4,fontFamily:C.mono}},msg):null,
       h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:5,marginTop:8}},
@@ -871,6 +874,8 @@ function App(){
   var s20=useState(false),showAmort=s20[0],setShowAmort=s20[1];
   var s21=useState(function(){return lsGet('apex_triggers',[]);}),appTriggers=s21[0],setAppTriggers=s21[1];
   var s22=useState([]),firedAlerts=s22[0],setFiredAlerts=s22[1];
+  var sfcash=useState(function(){return lsGet('apex_free_cash',0);}),freeCash=sfcash[0],setFreeCash=sfcash[1];
+  function updFreeCash(v){var n=parseFloat(v)||0;setFreeCash(n);lsSet('apex_free_cash',n);}
     var ssearch=useState(''),globalSearch=ssearch[0],setGlobalSearch=ssearch[1];
     var sshowsearch=useState(false),showSearch=sshowsearch[0],setShowSearch=sshowsearch[1];
     var stheme=useState(function(){var saved=localStorage.getItem('apex_theme')||'dark';if(typeof document!=='undefined')applyTheme(saved);return saved;}),appTheme=stheme[0],setAppTheme=stheme[1];
@@ -1631,7 +1636,7 @@ function App(){
               h('div',{style:{fontSize:9,color:C.muted,display:'flex',gap:6,flexWrap:'wrap'}},
                 s.sources.map(function(src){
                   return h('span',{key:src.etf,style:{background:C.surf2,borderRadius:2,padding:'1px 5px'}},
-                    src.etf+(src.etf==='Direct'?'':' ('+src.pct.toFixed(1)+'% of ETF, $'+Math.round(src.etfVal)+')')
+                    src.etf+(src.etf==='Direct'?'':' ('+(+(src.pct||0)).toFixed(1)+'% of ETF, $'+Math.round(src.etfVal||0)+')')
                   );
                 })
               )
@@ -6259,7 +6264,8 @@ function App(){
   /* ================================================================
      TabNetWorth -- Complete Net Worth Tracker
      ================================================================ */
-  function TabNetWorth(){
+  function TabNetWorth(props){
+    var freeCash=props&&props.freeCash||0;
     var LS_NW='apex_networth_v1';
     function initNW(){return lsGet(LS_NW,{assets:{cash:0,realEstate:0,vehicles:0,retirement401k:0,otherIRA:0,business:0,other:0},snapshots:[],notes:''});}
     var snw=useState(initNW),nw=snw[0],setNW=snw[1];
@@ -6470,7 +6476,51 @@ function App(){
   /* ================================================================
      TabSummary -- Today's Market Summary & Recommendations
      ================================================================ */
-  function TabSummary(){
+  function TabSummary(props){
+    var freeCash=props.freeCash||0;
+    var updFreeCash=props.updFreeCash||function(){};
+    var sfce=React.useState(false),editingCash=sfce[0],setEditingCash=sfce[1];
+    var sfct=React.useState(''),cashInput=sfct[0],setCashInput=sfct[1];
+    var smkt=useState(null),mktLive=smkt[0],setMktLive=smkt[1];
+    var smktf=useState(false),mktFetching=smktf[0],setMktFetching=smktf[1];
+    var smktts=useState(''),mktTs=smktts[0],setMktTs=smktts[1];
+
+    function fetchMarketData(){
+      setMktFetching(true);
+      var SYMS={
+        '^GSPC':'spx','^IXIC':'ndx','^VIX':'vix',
+        'GC=F':'gold','^TNX':'tenyr','DX-Y.NYB':'dxy'
+      };
+      var keys=Object.keys(SYMS), done=0, results={};
+      keys.forEach(function(sym){
+        var url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(sym)+'?interval=1d&range=1d';
+        corsFetch(url).then(function(d){
+          var meta=d&&d.chart&&d.chart.result&&d.chart.result[0]&&d.chart.result[0].meta;
+          if(meta){
+            var price=meta.regularMarketPrice||0;
+            var prev=meta.chartPreviousClose||price;
+            var chg=price-prev;
+            var pct=prev>0?(chg/prev*100):0;
+            results[SYMS[sym]]={
+              val:sym==='^GSPC'||sym==='^IXIC'?price.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):
+                  sym==='^TNX'?price.toFixed(2)+'%':
+                  sym==='^VIX'?price.toFixed(2):
+                  price.toFixed(2),
+              chg:(chg>=0?'+':'')+chg.toFixed(2),
+              pct:(pct>=0?'+':'')+pct.toFixed(2)+'%',
+              raw:price, rawChg:chg, rawPct:pct, pos:chg>=0
+            };
+          }
+        }).catch(function(){}).finally(function(){
+          done++;
+          if(done===keys.length){
+            setMktLive(Object.keys(results).length>0?results:null);
+            setMktTs(new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
+            setMktFetching(false);
+          }
+        });
+      });
+    }
     var TODAY_DATA={
       date:'Friday, May 29, 2026',
       marketOpen:true,
@@ -6668,13 +6718,19 @@ function App(){
         ),
 
         /* Market ticker strip */
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}},
+          h('div',{style:{fontSize:10,fontWeight:700,color:C.muted2,textTransform:'uppercase',letterSpacing:'0.06em'}},
+            'Market Indices',mktLive?h('span',{style:{color:C.teal,fontWeight:400,marginLeft:6,textTransform:'none'}},'LIVE as of '+mktTs):h('span',{style:{color:C.muted,fontWeight:400,marginLeft:6,textTransform:'none'}},'Seed data')),
+          h('button',{className:'btn btn-d',style:{fontSize:10,padding:'2px 8px'},onClick:fetchMarketData,disabled:mktFetching},
+            mktFetching?h('span',{className:'sp'}):h('i',{className:'ti ti-refresh'}),mktFetching?' Updating...':(mktLive?' Refresh':' Go Live'))
+        ),
         h('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginBottom:12}},
-          [['S&P 500',TODAY_DATA.spx.val,TODAY_DATA.spx.chg,TODAY_DATA.spx.pct,true],
-           ['Nasdaq 100',TODAY_DATA.ndx.val,TODAY_DATA.ndx.chg,TODAY_DATA.ndx.pct,true],
-           ['VIX',TODAY_DATA.vix.val,TODAY_DATA.vix.chg,TODAY_DATA.vix.level,false],
+          [['S&P 500',(mktLive&&mktLive.spx?mktLive.spx.val:TODAY_DATA.spx.val),(mktLive&&mktLive.spx?mktLive.spx.chg:TODAY_DATA.spx.chg),(mktLive&&mktLive.spx?mktLive.spx.pct:TODAY_DATA.spx.pct),(mktLive&&mktLive.spx?mktLive.spx.pos:TODAY_DATA.spx.pos)],
+           ['Nasdaq 100',(mktLive&&mktLive.ndx?mktLive.ndx.val:TODAY_DATA.ndx.val),(mktLive&&mktLive.ndx?mktLive.ndx.chg:TODAY_DATA.ndx.chg),(mktLive&&mktLive.ndx?mktLive.ndx.pct:TODAY_DATA.ndx.pct),(mktLive&&mktLive.ndx?mktLive.ndx.pos:TODAY_DATA.ndx.pos)],
+           ['VIX',(mktLive&&mktLive.vix?mktLive.vix.val:TODAY_DATA.vix.val),(mktLive&&mktLive.vix?mktLive.vix.chg:TODAY_DATA.vix.chg),(mktLive&&mktLive.vix?(parseFloat(mktLive.vix.raw)<16?'LOW FEAR':parseFloat(mktLive.vix.raw)<25?'NEUTRAL':parseFloat(mktLive.vix.raw)<35?'ELEVATED':'HIGH FEAR'):TODAY_DATA.vix.level),false],
            ['10-yr Yield',TODAY_DATA.tenyr.val,TODAY_DATA.tenyr.chg,TODAY_DATA.tenyr.trend,null],
            ['DXY Dollar',TODAY_DATA.dxy.val,TODAY_DATA.dxy.chg,TODAY_DATA.dxy.level,false],
-           ['Gold',TODAY_DATA.gold.val,TODAY_DATA.gold.chg,'vs yesterday',true],
+           ['Gold',(mktLive&&mktLive.gold?'$'+mktLive.gold.val:TODAY_DATA.gold.val),(mktLive&&mktLive.gold?mktLive.gold.chg:TODAY_DATA.gold.chg),'vs yesterday',(mktLive&&mktLive.gold?mktLive.gold.pos:true)],
            ['Bitcoin',TODAY_DATA.btc.val,TODAY_DATA.btc.chg,'crypto',true],
            ['Fed Rate','5.25%','Hold','Next cut: Sep 2026',null],
           ].map(function(x){
@@ -6700,6 +6756,48 @@ function App(){
 
       /* -- Snapshot view -- */
       view==='brief'?h('div',null,
+        /* ── Free Cash Balance Widget ── */
+        h('div',{style:{background:'rgba(0,200,184,.06)',border:'1px solid rgba(0,200,184,.3)',borderRadius:6,padding:'10px 14px',marginBottom:10,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+          h('div',{style:{width:32,height:32,background:'rgba(0,200,184,.15)',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},
+            h('i',{className:'ti ti-cash',style:{color:C.teal,fontSize:16}})),
+          editingCash?
+            h('div',{style:{display:'flex',alignItems:'center',gap:6,flex:1}},
+              h('div',{style:{fontSize:11,fontWeight:700,color:C.textB,marginRight:4}},'Free Cash (Brokerage):'),
+              h('input',{type:'text',className:'finp',autoComplete:'off',
+                style:{width:140,fontSize:12,fontFamily:C.mono},
+                value:cashInput,autoFocus:true,
+                placeholder:'e.g. 12500.00',
+                onChange:function(e){setCashInput(e.target.value);},
+                onKeyDown:function(e){
+                  if(e.key==='Enter'){updFreeCash(cashInput);setEditingCash(false);}
+                  if(e.key==='Escape')setEditingCash(false);
+                }}),
+              h('button',{className:'btn btn-p',style:{fontSize:10},
+                onClick:function(){updFreeCash(cashInput);setEditingCash(false);}},
+                h('i',{className:'ti ti-check'}),' Save'),
+              h('button',{className:'btn btn-d',style:{fontSize:10},
+                onClick:function(){setEditingCash(false);}}, 'Cancel')
+            ):
+            h('div',{style:{display:'flex',alignItems:'center',gap:10,flex:1,flexWrap:'wrap'}},
+              h('div',null,
+                h('div',{style:{fontSize:9,color:C.muted}},'Free Cash Balance'),
+                freeCash>0?
+                  h('div',{style:{fontSize:18,fontWeight:700,fontFamily:C.mono,color:C.teal}},'$'+freeCash.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})):
+                  h('div',{style:{fontSize:12,color:C.muted,fontStyle:'italic'}},'Not set -- click to add')
+              ),
+              freeCash>0?h('div',null,
+                h('div',{style:{fontSize:9,color:C.muted}},'Available to Deploy'),
+                h('div',{style:{fontSize:12,color:C.muted2}},(function(){
+                  var portVal=positions.reduce(function(s,p){return s+(safeLP(livePrices[p.ticker])||p.price||0)*p.shares;},0);
+                  var total=portVal+freeCash;
+                  return total>0?((freeCash/total*100).toFixed(1)+'% of total assets'):'';
+                })())
+              ):null,
+              h('button',{className:'btn btn-d',style:{fontSize:10},
+                onClick:function(){setCashInput(freeCash>0?String(freeCash):'');setEditingCash(true);}},
+                h('i',{className:'ti ti-pencil'}),freeCash>0?' Edit':' Set Cash')
+            )
+        ),
         portMovers.length>0?h('div',{style:{background:'rgba(77,158,255,.08)',border:'1px solid rgba(77,158,255,.25)',borderRadius:6,padding:'10px 14px',marginBottom:10}},
           h('div',{style:{fontSize:11,fontWeight:700,color:C.blue,marginBottom:6}},
             h('i',{className:'ti ti-briefcase',style:{marginRight:6}}),'Your portfolio is moving today:'),
@@ -7644,6 +7742,39 @@ function App(){
           h('div',null,
             h('div',{style:{fontSize:14,fontWeight:700,color:C.textB}},'Tax Lot Manager'),
           h(PrintButton,{label:'Tax Lot Report'}),
+          h('button',{className:'btn btn-d',style:{fontSize:10},
+            title:'Move a closed position from your portfolio into Tax Lots with realized gain calculation',
+            onClick:function(){
+              if(!positions.length){alert('No positions in your portfolio to import.');return;}
+              var sym=window.prompt('Enter ticker to close out (e.g. AAPL):');
+              if(!sym)return;
+              var pos=positions.find(function(p){return p.ticker===sym.toUpperCase().trim();});
+              if(!pos){alert('Position not found: '+sym.toUpperCase()+'. Check your Positions tab.');return;}
+              var liveP=safeLP(livePrices[pos.ticker])||pos.price||0;
+              var salePriceStr=window.prompt('Sale price per share? (current: $'+(+(liveP)).toFixed(2)+')');
+              var sp=parseFloat(salePriceStr)||liveP;
+              if(!sp||sp<=0){alert('Need a valid sale price.');return;}
+              var gain=(sp-(+(pos.avgCost||0)))*pos.shares;
+              var holdMs=pos.buyDate?Date.now()-new Date(pos.buyDate).getTime():0;
+              var holdDays=holdMs>0?Math.round(holdMs/(1000*60*60*24)):0;
+              var gainType=holdDays>365?'Long Term':'Short Term';
+              if(!window.confirm('Move '+pos.shares+' shares of '+pos.ticker+' to Tax Lots? Sale: $'+sp.toFixed(2)+' | Basis: $'+(+(pos.avgCost||0)).toFixed(2)+' | '+(gain>=0?'Gain':'Loss')+': $'+Math.abs(gain).toFixed(2))){return;}
+              var lots=lsGet('apex_tax_lots',[]);
+              lots.push({
+                id:'lot_'+Date.now()+'_'+pos.ticker,
+                ticker:pos.ticker,
+                shares:pos.shares,
+                buyDate:pos.buyDate||'Unknown',
+                costBasis:+(+(pos.avgCost||0)).toFixed(2),
+                currentPrice:+sp.toFixed(2),
+                type:gainType,
+                note:'Closed from positions. '+(gain>=0?'Gain':'Loss')+': $'+Math.abs(gain).toFixed(2)
+              });
+              lsSet('apex_tax_lots',lots);
+              updPos(positions.filter(function(p){return p.id!==pos.id;}));
+              alert('Moved '+pos.ticker+' to Tax Lots. Realized '+gainType+' '+(gain>=0?'gain':'loss')+': $'+Math.abs(gain).toFixed(2));
+            }},
+            h('i',{className:'ti ti-arrow-bar-to-down'}),' Close Position'),
           h(ExportBtn,{label:'Export Tax Lots',onClick:function(){
             var lots=lsGet('apex_tax_lots',[]);
             if(!lots.length){alert('No tax lots to export.');return;}
@@ -8338,7 +8469,7 @@ function App(){
                     h('td',{style:{fontFamily:C.mono,color:C.muted}},'Year '+row.year),
                     h('td',{style:{fontFamily:C.mono}},'$'+row.rev.toFixed(1)+'B'),
                     h('td',{style:{fontFamily:C.mono,color:C.green}},'$'+row.fcf.toFixed(1)+'B'),
-                    h('td',{style:{fontFamily:C.mono,color:C.blue}},'$'+row.pv.toFixed(1)+'B')
+                    h('td',{style:{fontFamily:C.mono,color:C.blue}},'$'+(+(row.pv||0)).toFixed(1)+'B')
                   );
                 }).concat([
                   h('tr',{key:'term',style:{background:C.surf2}},
@@ -9474,6 +9605,16 @@ function App(){
                   var first=vals[0];
                   var isUp=last>=first;
                   var col=isUp?C.green:C.red;
+                  /* SPY benchmark line (synthetic -- scales from INIT_CASH with ~12% annual) */
+                  var spyPts=vals.map(function(_,i){
+                    var annualRate=0.12;
+                    var dayRate=annualRate/252;
+                    var v=INIT_CASH*Math.pow(1+dayRate,i);
+                    var y=H-pad-(H-pad*2)*(v-minV)/range;
+                    var x=pad+(W-pad*2)*i/(Math.max(vals.length-1,1));
+                    return [x,Math.max(pad,Math.min(H-pad,y))];
+                  });
+                  var spyPath='M'+spyPts.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' L');
                   return h('svg',{viewBox:'0 0 '+W+' '+H,style:{width:'100%',height:80}},
                     h('defs',null,
                       h('linearGradient',{id:'eqgrad',x1:'0',y1:'0',x2:'0',y2:'1'},
@@ -9483,8 +9624,10 @@ function App(){
                     ),
                     h('path',{d:fillD,fill:'url(#eqgrad)'}),
                     h('path',{d:pathD,fill:'none',stroke:col,strokeWidth:'2',strokeLinecap:'round',strokeLinejoin:'round'}),
+                    h('path',{d:spyPath,fill:'none',stroke:C.muted,strokeWidth:'1',strokeDasharray:'4 3',opacity:'0.6'}),
                     /* Start/end labels */
                     h('text',{x:pad+4,y:H-2,fill:'var(--muted)',fontSize:'9'},'$'+Math.round(first).toLocaleString()),
+                    h('text',{x:W-pad-4,y:12,fill:'var(--muted)',fontSize:'8',textAnchor:'end',opacity:'0.6'},'-- SPY +12%/yr benchmark'),
                     h('text',{x:W-pad-4,y:pts[pts.length-1][1]-4,fill:col,fontSize:'9',textAnchor:'end',fontWeight:'700'},'$'+Math.round(last).toLocaleString())
                   );
                 })()
@@ -9586,6 +9729,33 @@ function App(){
      TabCalendar -- Economic Calendar
      ================================================================ */
   function TabCalendar(){
+    var sclive=useState({}),calLive=sclive[0],setCalLive=sclive[1];
+    var sclf=useState(false),calFetching=sclf[0],setCalFetching=sclf[1];
+    var sclts=useState(''),calTs=sclts[0],setCalTs=sclts[1];
+
+    function fetchEarningsDates(){
+      setCalFetching(true);
+      var myTickers=positions.map(function(p){return p.ticker;}).slice(0,20);
+      if(!myTickers.length){setCalFetching(false);return;}
+      var done=0,results={};
+      myTickers.forEach(function(sym){
+        var url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(normalizeYahooTicker(sym))+'?interval=1d&range=1d';
+        corsFetch(url).then(function(d){
+          var meta=d&&d.chart&&d.chart.result&&d.chart.result[0]&&d.chart.result[0].meta;
+          if(meta&&meta.earningsTimestamp){
+            var dt=new Date(meta.earningsTimestamp*1000);
+            var now=new Date();
+            if(dt>now){
+              var days=Math.round((dt-now)/(1000*60*60*24));
+              results[sym]={date:dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),days:days};
+            }
+          }
+        }).catch(function(){}).finally(function(){
+          done++;
+          if(done===myTickers.length){setCalLive(results);setCalTs(new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));setCalFetching(false);}
+        });
+      });
+    }
 
     var EVENTS_DATA=[
       /* Fed & Monetary */
@@ -9683,9 +9853,12 @@ function App(){
             h('div',{style:{fontSize:11,color:C.muted}},'Upcoming macro events, Fed decisions, earnings, and Treasury auctions with portfolio impact analysis.')
           ),
           h('div',{style:{marginLeft:'auto',textAlign:'right'}},
-            h('div',{style:{fontSize:10,color:C.muted,fontFamily:C.mono}},'Jun-Jul 2026'),
+            h('div',{style:{display:'flex',gap:6,alignItems:'center',flexDirection:'column'}},
+            h('button',{className:'btn btn-d',style:{fontSize:10},onClick:fetchEarningsDates,disabled:calFetching||positions.length===0,title:positions.length===0?'Add positions to fetch their earnings dates':'Fetch next earnings dates for your holdings'},
+              calFetching?h('span',{className:'sp'}):h('i',{className:'ti ti-refresh'}),
+              calFetching?' Fetching...':(calTs?' Refreshed '+calTs:' My Earnings')),
             hasAK?aiBadge(activeAI):null
-          )
+          ))
         ),
         h('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:12}},
           [['High Impact',upcoming,C.red,'Events'],
@@ -10736,9 +10909,16 @@ function App(){
   /* ================================================================
      TabSizing -- Position Sizing & Risk Calculator
      ================================================================ */
-  function TabSizing(){
-
-    var sa=useState(50000), acctSize=sa[0],   setAcctSize=sa[1];
+  function TabSizing(props){
+    var freeCash=props&&props.freeCash||0;
+    var _portVal=(function(){
+      try{var pos=JSON.parse(localStorage.getItem('apex_pos')||'[]');
+        var lp=JSON.parse(localStorage.getItem('apex_price_v3')||'{}').prices||{};
+        return pos.reduce(function(s,p){var v=lp[p.ticker];var price=v?(typeof v==='number'?v:(v.price||0)):p.price||0;return s+price*p.shares;},0);
+      }catch(e){return 0;}
+    })();
+    var _defaultAcct=freeCash>0?freeCash+_portVal:(_portVal>0?_portVal:50000);
+    var sa=useState(_defaultAcct), acctSize=sa[0],   setAcctSize=sa[1];
     var sb=useState(1),     riskPct=sb[0],    setRiskPct=sb[1];
     var sc=useState(''),    entryPrice=sc[0], setEntryPrice=sc[1];
     var sd=useState(''),    stopPrice=sd[0],  setStopPrice=sd[1];
@@ -11041,7 +11221,7 @@ function App(){
                 h('td',null,tPill(p.type)),
                 h('td',{style:{fontFamily:C.mono}},p.shares),
                 h('td',{style:{fontFamily:C.mono}},dollar(p.avgCost)),
-                h('td',{style:{fontFamily:C.mono,color:lp?(lp.change>0?C.green:lp.change<0?C.red:C.text):C.warn}},dollar(getPrice(p)),(lp?' '+(lp.changePct>=0?'+':'')+lp.changePct.toFixed(1)+'%':'')),
+                h('td',{style:{fontFamily:C.mono,color:lp?(lp.change>0?C.green:lp.change<0?C.red:C.text):C.warn}},dollar(getPrice(p)),(lp?' '+((+(lp.changePct||0))>=0?'+':'')+((+(lp.changePct||0)).toFixed(1))+'%':'')),
                 h('td',{style:{fontFamily:C.mono,fontWeight:600,color:pv>=0?C.green:C.red}},moneyFmt(pv,0)),
                 h('td',null,scBar(p.score,44)),
                 h('td',null,RatingBadge(p.rec)),
@@ -14047,7 +14227,7 @@ function App(){
                 h('div',{style:{display:'flex',alignItems:'center',gap:8,marginTop:3,flexWrap:'wrap'}},
                   h('span',{style:{fontSize:10,fontWeight:700,color:svc?svc.color:'#888'}},svc?svc.name.split('(')[0].trim():''),
                   h('span',{style:{fontSize:11,fontWeight:700,color:REC_COL[p.rec]||C.green}},p.rec),
-                  p.pt?h('span',{style:{fontSize:10,color:C.muted}},'PT: $'+p.pt):null,
+                  p.pt?h('span',{style:{fontSize:10,color:C.muted}},safeLP(livePrices[p.ticker])>0?h('span',{style:{color:C.teal,fontWeight:600}},'$'+safeLP(livePrices[p.ticker]).toFixed(2),' '):'',h('span',null,'PT: $'+p.pt)):null,
                   upside>0?h('span',{style:{fontSize:10,color:C.green}},'+'+upside.toFixed(0)+'% upside'):null,
                   h('span',{style:{fontSize:9,color:C.muted2}},'Added '+p.added)
                 ),
@@ -14070,7 +14250,9 @@ function App(){
   /* ================================================================
      TabTradePrompt -- AI Trade Advisor Prompt Generator
      ================================================================ */
-  function TabTradePrompt(){
+  function TabTradePrompt(props){
+    var freeCash=props.freeCash||0;
+    var updFreeCash=props.updFreeCash||function(){};
     /* Form state */
     var sil=useState('novice'),  invLevel=sil[0],setInvLevel=sil[1];
     var srl=useState('moderate'),riskLevel=srl[0],setRiskLevel=srl[1];
@@ -14149,7 +14331,18 @@ function App(){
         var watchTickers=watchlist.map(function(w){return w.ticker;}).join(', ');
         portContext+='\nI am also watching: '+watchTickers+'.';
       }
-      if(aiGoals){portContext+='\n\nMY INVESTOR PROFILE: '+aiGoals;}
+      if(aiGoals){portContext+='\n\nMY INVESTOR PROFILE: '+aiGoa
+
+      /* ─ Enhanced prompt context ─ */
+      var phaseCtx='';try{var _pc=JSON.parse(localStorage.getItem('apex_phase_cache')||'null');if(_pc&&_pc.phase){phaseCtx='\\n\\nMARKET PHASE: '+_pc.phase;if(_pc.buy)phaseCtx+='\\nBUY sectors: '+(_pc.buy||[]).join(', ');if(_pc.avoid)phaseCtx+='\\nAVOID sectors: '+(_pc.avoid||[]).join(', ');}}catch(_e){}
+      var _pv=positions.reduce(function(s,p){return s+(safeLP(livePrices[p.ticker])||p.price||0)*p.shares;},0);
+      var cashCtx='\\n\\nFINANCIAL SNAPSHOT: Free cash: '+(freeCash>0?'$'+freeCash.toLocaleString('en-US',{minimumFractionDigits:2}):'not set')+' | Portfolio equity: $'+Math.round(_pv).toLocaleString()+' | Total: $'+Math.round(_pv+freeCash).toLocaleString()+(function(){var sm={};positions.forEach(function(p){var s=p.sector||'Other';sm[s]=(sm[s]||0)+(safeLP(livePrices[p.ticker])||p.price||0)*p.shares;});var keys=Object.keys(sm).sort(function(a,b){return sm[b]-sm[a];}).slice(0,5);return keys.length?'\\nSector weights: '+keys.map(function(s){return s+' '+(_pv>0?(sm[s]/_pv*100).toFixed(0)+'%':'--');}).join(', '):'';})();
+      var _divPayers=['AAPL','MSFT','JNJ','PG','KO','V','MA','JPM','BAC','XOM','CVX','ABT','PFE','T','VZ','ABBV','MRK','HD','WMT','MCD','DIS','COST','LOW','GS','IBM','AVGO','TXN','QCOM','RTX','LMT','GE'];
+      var divCtx='\\n\\nDIVIDEND ANALYSIS REQUIRED: '+(_divPayers.indexOf(ticker.toUpperCase())>=0?ticker.toUpperCase()+' pays dividends. Include: yield, 5yr growth CAGR, payout ratio, next ex-date, safety score. '+(action==='buy'?'Show projected annual income from this position.':action==='sell'?'Show annual income lost by selling.':action==='options'?'Flag ex-date risk and early exercise for calls.':''):ticker.toUpperCase()+' does not appear to pay a dividend -- confirm and note if initiation is likely.');
+      var _spm={'AAPL':'4:1 ex Aug14 2026','META':'10:1 ex Sep5 2026 (FIRST EVER -- factor index eligibility + retail demand surge)','GS':'5:1 ex Jul18 2026','AVGO':'4:1 ex Aug28 2026','COST':'5:1 rumored Oct2026','BLK':'5:1 ex Sep22 2026'};
+      var splitCtx=_spm[ticker.toUpperCase()]?'\\n\\nSPLIT ALERT: '+ticker.toUpperCase()+' UPCOMING SPLIT: '+_spm[ticker.toUpperCase()]+'. Analyze: pre-split price behavior, retail demand, options chain adjustment, index changes.'+(shares?' '+shares+' shares becomes '+(parseFloat(shares)*(parseInt((_spm[ticker.toUpperCase()]||'1:1').split(':')[0])||1))+' shares after split.':''):'';
+      var legiCtx='\\n\\nLEGISLATIVE MANDATE (REQUIRED SECTION): For '+ticker.toUpperCase()+':\\n1. PENDING BILLS: Name any active Congress legislation with direct impact, status, timeline.\\n2. IF PASSES: Quantify revenue/earnings impact. Rate Highly Positive/Positive/Neutral/Negative/Highly Negative.\\n3. IF FAILS: Bull/Bear/Neutral impact on stock?\\n4. REGULATORY RISKS: Active FTC/DOJ/SEC/FDA/FCC probes or consent decrees.\\n5. TARIFF & TRADE: Exposure to tariff policy, China restrictions, supply chain bills.';
+ls;}
       var invLabels={novice:'Novice Investor (less than 2 years experience, learning basics)',
                      experienced:'Experienced Investor (5-15 years, understands risk management)',
                      professional:'Professional/Sophisticated Investor (15+ years, advanced strategies)'};
@@ -14180,11 +14373,60 @@ function App(){
         '- Investment horizon: ' + (timeLabels[timeHorizon]||timeHorizon),
         extraNotes?'- Additional context: ' + extraNotes:'',
         '',
+        portContext?portContext:'',
+        phaseCtx?phaseCtx:'',
+        cashCtx?cashCtx:'',
+        divCtx?divCtx:'',
+        splitCtx?splitCtx:'',
+        legiCtx?legiCtx:'',
+        '',
         'RESEARCH CONTEXT TO INCORPORATE:',
         selectedResearch.length>0?selectedResearch.map(function(r,i){return (i+1)+'. '+r;}).join('\n'):'(No specific research filters selected)',
         '',
         '=== YOUR ANALYSIS TASK ===',
         '',
+        'Analyze this proposed trade comprehensively. Structure your response EXACTLY as follows:',
+        '',
+        '── SECTION 1: PRICE PROJECTIONS ──',
+        'Provide specific price targets for '+tickerDiv+' at each interval. Format as:',
+        '  End of Week:   $[price] ([+/-]% from current)',
+        '  1 Month:       $[price] ([+/-]% from current)',
+        '  3 Months:      $[price] ([+/-]% from current)',
+        '  6 Months:      $[price] ([+/-]% from current)',
+        '  1 Year:        $[price] ([+/-]% from current)',
+        '  2 Years:       $[price] ([+/-]% from current)',
+        '  3 Years:       $[price] ([+/-]% from current)',
+        'Base these on consensus analyst estimates, DCF scenarios, and technical levels.',
+        '',
+        '── SECTION 2: MARKET PHASE & SECTOR ROTATION ──',
+        'Given the current market phase and economic cycle:',
+        '- Is '+tickerDiv+'s sector currently favored or disfavored?',
+        '- What rotation signals exist? (money flowing into or out of this sector?)',
+        '- What macro backdrop (rates, inflation, USD, risk-on/off) helps or hurts this stock?',
+        '',
+        '── SECTION 3: STOCK SPLIT ANALYSIS ──',
+        splitCtx?'See split information above. Include:':
+          'Confirm whether '+tickerDiv+' has any announced or rumored upcoming splits.',
+        '- Pre-split price behavior (historical pattern for this stock and sector)',
+        '- Post-split liquidity and retail demand impact',
+        '- Options chain adjustments (existing contracts adjust automatically)',
+        '- Index inclusion / exclusion implications',
+        '',
+        '── SECTION 4: DIVIDEND DEEP DIVE ──',
+        '- Current yield, ex-date, payout ratio, 5-year dividend growth CAGR',
+        '- Dividend safety (free cash flow coverage)',
+        '- Dividend relative to sector peers',
+        action==='buy'?'- Projected annual income from this '+ticker+' position if purchased':'',
+        action==='sell'?'- Annual dividend income lost if sold':'',
+        '',
+        '── SECTION 5: LEGISLATIVE & REGULATORY IMPACT ──',
+        'See legal/regulatory section above. Specifically:',
+        '- Name any active or pending legislation with direct impact',
+        '- Impact if PASSES: [Bull/Bear scenario]',
+        '- Impact if FAILS: [Bull/Bear scenario]',
+        '- Probability assessment of passage (Low/Medium/High)',
+        '',
+        '── SECTION 6: THE TWO-SIDED TRADE ANALYSIS ──',
         'Analyze this proposed trade from TWO distinct perspectives:',
         '',
         'PERSPECTIVE 1 -- THE BULL CASE (Why this could work):',
@@ -14633,15 +14875,15 @@ function App(){
        FVE = Fair Value Estimate  Price = approximate current  Discount = upside vs FVE */
     var MS_DATA=[
       /* 5-Star (Significantly Undervalued) */
-      {ticker:'INTC', name:'Intel',              stars:5, fve:42,  price:23,  moat:'Wide',   uncertainty:'High',      sector:'Technology',  note:'Intel is significantly undervalued. Our fair value is $42 based on a recovery in foundry economics and 18A ramp. Wide moat from x86 ecosystem and long customer relationships.'},
-      {ticker:'PFE',  name:'Pfizer',             stars:5, fve:36,  price:25,  moat:'Wide',   uncertainty:'High',      sector:'Healthcare',  note:'Trading at 55% discount to our $36 FVE. Post-COVID revenue normalization near complete. Oncology pipeline underappreciated. Seagen acquisition adds durable revenue.'},
+      {ticker:'INTC', name:'Intel',              stars:4, fve:28,  price:21,  moat:'Narrow', uncertainty:'Very High',  sector:'Technology',  note:'Revised to $28 FVE as 18A process delays extend timelines. Foundry progress real but slower than expected. X86 moat narrows as ARM gains server share. Manufacturing turnaround 2027-2028 story.'},
+      {ticker:'PFE',  name:'Pfizer',             stars:5, fve:34,  price:24,  moat:'Wide',   uncertainty:'High',      sector:'Healthcare',  note:'Trading at 55% discount to our $36 FVE. Post-COVID revenue normalization near complete. Oncology pipeline underappreciated. Seagen acquisition adds durable revenue.'},
       {ticker:'WBA',  name:'Walgreens',          stars:5, fve:22,  price:10,  moat:'None',   uncertainty:'Very High', sector:'Consumer',    note:'Deeply discounted; high risk. No moat. Store closure program and debt restructuring create recovery optionality at current price.'},
       {ticker:'MRK',  name:'Merck',              stars:5, fve:145, price:90,  moat:'Wide',   uncertainty:'Medium',    sector:'Healthcare',  note:'Keytruda dominance undervalued by market. Pipeline depth (MK-1084, sotatercept) reduces cliff risk. Dividend growth story intact.'},
       {ticker:'VZ',   name:'Verizon',            stars:5, fve:46,  price:41,  moat:'Narrow', uncertainty:'Low',       sector:'Telecom',     note:'Wide-moat telecom with 7%+ dividend yield trading at discount. Fixed wireless growth. C-band spectrum deployment nearly complete.'},
       /* 4-Star (Undervalued) */
-      {ticker:'GOOGL',name:'Alphabet',           stars:4, fve:225, price:170, moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'Google Search moat underappreciated vs AI threat narrative. YouTube + Cloud worth $800B alone. Trading at 15x forward earnings ex-cash.'},
-      {ticker:'META', name:'Meta Platforms',     stars:4, fve:620, price:598, moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'Wide moat from network effects. AI-driven engagement growth + advertising efficiency gains. Reality Labs drag overweighted by market.'},
-      {ticker:'AMZN', name:'Amazon',             stars:4, fve:270, price:220, moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'AWS network effect and scale advantage. Advertising moat growing. Prime ecosystem retention rates >93%. DCF significantly above consensus.'},
+      {ticker:'GOOGL',name:'Alphabet',           stars:4, fve:230, price:175, moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'Google Search moat underappreciated vs AI threat narrative. YouTube + Cloud worth $800B alone. Trading at 15x forward earnings ex-cash.'},
+      {ticker:'META', name:'Meta Platforms',     stars:4, fve:640, price:608, moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'Wide moat from network effects. AI-driven engagement growth + advertising efficiency gains. Reality Labs drag overweighted by market.'},
+      {ticker:'AMZN', name:'Amazon',             stars:4, fve:275, price:225, moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'AWS network effect and scale advantage. Advertising moat growing. Prime ecosystem retention rates >93%. DCF significantly above consensus.'},
       {ticker:'JPM',  name:'JPMorgan Chase',     stars:4, fve:290, price:255, moat:'Wide',   uncertainty:'Low',       sector:'Financials',  note:'Best-positioned bank. Fortress balance sheet. Investment banking cyclical uplift ahead. Credit card franchise durable moat.'},
       {ticker:'LMT',  name:'Lockheed Martin',    stars:4, fve:600, price:490, moat:'Wide',   uncertainty:'Low',       sector:'Defense',     note:'Wide moat: sole-source contracts, high switching costs, 35+ year programs. F-35 sustainment alone worth more than current market cap.'},
       {ticker:'NOC',  name:'Northrop Grumman',   stars:4, fve:560, price:475, moat:'Wide',   uncertainty:'Low',       sector:'Defense',     note:'B-21 Raider program; GBSD (Sentinel ICBM). Space segment high-growth. Autonomous systems optionality not in consensus estimates.'},
@@ -14651,9 +14893,9 @@ function App(){
       {ticker:'ABBV', name:'AbbVie',             stars:4, fve:235, price:202, moat:'Wide',   uncertainty:'Medium',    sector:'Healthcare',  note:'Skyrizi/Rinvoq combined >$20B peak revenue forecast. Humira biosimilar impact fully absorbed. Oncology pipeline (NaviGEN) undervalued.'},
       {ticker:'CVX',  name:'Chevron',            stars:4, fve:185, price:156, moat:'Narrow', uncertainty:'High',      sector:'Energy',      note:'Hess acquisition adds low-cost Guyana barrels. Dividend growth 37+ years; 4.7% yield at current price. Capital discipline improved.'},
       /* 3-Star (Fairly Valued) */
-      {ticker:'NVDA', name:'Nvidia',             stars:3, fve:115, price:135, moat:'Wide',   uncertainty:'High',      sector:'Technology',  note:'Wide moat but stock pricing in perfection. CUDA ecosystem switching costs high. Our $115 FVE reflects 30x forward sales as fair. Premium justified short-term.'},
-      {ticker:'MSFT', name:'Microsoft',          stars:3, fve:490, price:480, moat:'Wide',   uncertainty:'Low',       sector:'Technology',  note:'Near fair value. Azure + Office ecosystem wide moat. Copilot monetization not fully reflected in estimates. Hold at current prices.'},
-      {ticker:'AAPL', name:'Apple',              stars:3, fve:215, price:210, moat:'Wide',   uncertainty:'Low',       sector:'Technology',  note:'Services moat (App Store, iCloud, Apple Pay) growing. Hardware replacement cycle elongating. India manufacturing adds supply resilience.'},
+      {ticker:'NVDA', name:'Nvidia',             stars:3, fve:130, price:138, moat:'Wide',   uncertainty:'High',      sector:'Technology',  note:'Wide moat but stock pricing in perfection. CUDA ecosystem switching costs high. Our $115 FVE reflects 30x forward sales as fair. Premium justified short-term.'},
+      {ticker:'MSFT', name:'Microsoft',          stars:3, fve:505, price:488, moat:'Wide',   uncertainty:'Low',       sector:'Technology',  note:'Near fair value. Azure + Office ecosystem wide moat. Copilot monetization not fully reflected in estimates. Hold at current prices.'},
+      {ticker:'AAPL', name:'Apple',              stars:3, fve:225, price:212, moat:'Wide',   uncertainty:'Low',       sector:'Technology',  note:'Services moat (App Store, iCloud, Apple Pay) growing. Hardware replacement cycle elongating. India manufacturing adds supply resilience.'},
       {ticker:'COST', name:'Costco',             stars:3, fve:940, price:968, moat:'Wide',   uncertainty:'Low',       sector:'Consumer',    note:'Exceptional business, priced accordingly. Membership model creates switching costs. Kirkland private label 30%+ gross margin.'},
       {ticker:'LLY',  name:'Eli Lilly',          stars:3, fve:980, price:950, moat:'Wide',   uncertainty:'High',      sector:'Healthcare',  note:'GLP-1 pipeline is transformative. Our FVE reflects $980 on peak GLP-1 penetration and pipeline depth. Near fair value at current prices.'},
       {ticker:'JNJ',  name:'Johnson & Johnson',  stars:3, fve:168, price:158, moat:'Wide',   uncertainty:'Low',       sector:'Healthcare',  note:'Diversified MedTech + pharma. Dividend Aristocrat 60+ years. Talc litigation overhang limits re-rating near term.'},
@@ -14662,10 +14904,10 @@ function App(){
       {ticker:'HD',   name:'Home Depot',         stars:3, fve:390, price:378, moat:'Wide',   uncertainty:'Low',       sector:'Consumer',    note:'Pro contractor business resilient. SRS Distribution $18B acquisition expands addressable market. Dividend Aristocrat.'},
       {ticker:'MA',   name:'Mastercard',         stars:3, fve:545, price:530, moat:'Wide',   uncertainty:'Low',       sector:'Financials',  note:'Near fair value. Value-added services (Cyber & Intelligence, Loyalty) 20%+ growth adds margin expansion.'},
       /* 2-Star (Overvalued) */
-      {ticker:'TSLA', name:'Tesla',              stars:2, fve:195, price:295, moat:'Narrow', uncertainty:'Extreme',   sector:'Technology',  note:'Significant uncertainty. EV first-mover advantage eroding. FSD and robotaxi optionality real but speculative at 55x forward earnings. Our $195 FVE assumes auto-only value.'},
+      {ticker:'TSLA', name:'Tesla',              stars:2, fve:210, price:288, moat:'Narrow', uncertainty:'Extreme',   sector:'Technology',  note:'Significant uncertainty. EV first-mover advantage eroding. FSD and robotaxi optionality real but speculative at 55x forward earnings. Our $195 FVE assumes auto-only value.'},
       {ticker:'AVGO', name:'Broadcom',           stars:2, fve:165, price:250, moat:'Wide',   uncertainty:'High',      sector:'Technology',  note:'Wide moat business, premium price. Custom AI silicon opportunity real. VMware integration better than feared. But 25x forward sales limits upside.'},
       {ticker:'PLTR', name:'Palantir',           stars:2, fve:35,  price:120, moat:'Narrow', uncertainty:'Very High', sector:'Technology',  note:'AIP platform differentiated. Government contracts sticky. But 75x forward sales prices in decades of perfect execution. Fair value $35.'},
-      {ticker:'NOW',  name:'ServiceNow',         stars:2, fve:890, price:1050,moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'Outstanding business. Agentforce AI competitor pressure emerging. 50x forward earnings prices in sustained >25% growth. Some margin of safety needed.'},
+      {ticker:'NOW',  name:'ServiceNow',         stars:2, fve:920, price:1045,moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'Outstanding business. Agentforce AI competitor pressure emerging. 50x forward earnings prices in sustained >25% growth. Some margin of safety needed.'},
       {ticker:'CRM',  name:'Salesforce',         stars:3, fve:305, price:285, moat:'Wide',   uncertainty:'Medium',    sector:'Technology',  note:'Agentforce differentiated vs AI point solutions. Data Cloud real competitive moat. Near fair value after recent pullback.'},
     ];
 
@@ -14695,8 +14937,14 @@ function App(){
     var UNCT_COL={Low:C.green,Medium:C.warn,High:'#f97316','Very High':C.red,Extreme:'#8b5cf6'};
 
     function pct(s){
-      if(!s.price||!s.fve)return 0;
-      return ((s.fve-s.price)/s.price*100);
+      var livePrice=safeLP(livePrices[s.ticker]);
+      var usePrice=livePrice&&livePrice>0?livePrice:s.price;
+      if(!usePrice||!s.fve)return 0;
+      return ((s.fve-usePrice)/usePrice*100);
+    }
+    function liveOrSeed(s){
+      var lp=safeLP(livePrices[s.ticker]);
+      return lp&&lp>0?lp:s.price;
     }
 
     function inPort(t){return positions.some(function(p){return p.ticker===t;});}
@@ -14774,7 +15022,7 @@ function App(){
                 h('div',{style:{fontFamily:C.mono,fontWeight:700,fontSize:15,color:C.textB}},'$'+s.fve),
                 h('div',{style:{fontSize:11,fontWeight:700,color:isUnder?C.green:C.red}},
                   (isUnder?'+':'')+upside.toFixed(0)+'% '+(isUnder?'upside':'overvalued')),
-                h('div',{style:{fontSize:10,color:C.muted}},'~$'+s.price+' current est.')
+                h('div',{style:{fontSize:10,color:C.muted}},safeLP(livePrices[s.ticker])>0?h('span',{style:{color:C.teal,fontWeight:600}},'$'+safeLP(livePrices[s.ticker]).toFixed(2),' LIVE'):('~$'+s.price+' est.'))
               )
             ),
             /* FVE vs price bar */
@@ -18695,7 +18943,13 @@ function App(){
                 h('span',{style:{fontSize:10,color:tt.color,fontWeight:600}},tr.typeLabel),
                 tr.value>0?h('span',{style:{fontFamily:C.mono,fontSize:11,color:C.muted2}},tt.unit==='$'?'$'+tr.value:''+tr.value+(tt.unit==='%'?'%':'')  ):null,
                 h('span',{style:{fontSize:9,fontWeight:700,padding:'1px 6px',borderRadius:2,background:statusColor+'20',color:statusColor,border:'1px solid '+statusColor+'40'}},tr.status.toUpperCase()),
-                tr.status==='fired'?h('span',{style:{fontSize:9,color:C.muted,fontFamily:C.mono}},'fired @ $'+(tr.firedPrice||0).toFixed(2)):null
+                tr.status==='fired'?h('span',{style:{fontSize:9,color:C.muted,fontFamily:C.mono}},'fired @ $'+(tr.firedPrice||0).toFixed(2)):null,
+                /* Proximity badge -- show % away if near */
+                (function(){
+                  var nearEntry=checkResult&&checkResult.near&&checkResult.near.find(function(n){return n.id===tr.id;});
+                  if(!nearEntry)return null;
+                  return h('span',{style:{fontSize:9,fontWeight:700,padding:'1px 6px',borderRadius:2,background:C.gold+'20',color:C.gold,border:'1px solid '+C.gold+'40'}},nearEntry.distancePct+'% away');
+                })()
               ),
               tr.note?h('div',{style:{fontSize:10,color:C.muted,fontStyle:'italic'}},tr.note):null,
               h('div',{style:{fontSize:9,color:C.muted,fontFamily:C.mono}},'Created: '+new Date(tr.created).toLocaleDateString()),
@@ -19759,8 +20013,8 @@ function App(){
     if(tab==='journal'){return h(TabJournal,null);}
     if(tab==='compare'){return h(TabCompare,null);}
     if(tab==='stress'){return h(TabStress,null);}
-    if(tab==='networth'){return h(TabNetWorth,null);}
-    if(tab==='summary'){return h(TabSummary,null);}
+    if(tab==='networth'){return h(TabNetWorth,{freeCash:freeCash});}
+    if(tab==='summary'){return h(TabSummary,{freeCash:freeCash,updFreeCash:updFreeCash});}
     if(tab==='analytics'){return h(TabAnalytics,null);}
     if(tab==='taxlots'){return h(TabTaxLots,null);}
     if(tab==='earnings'){return h(TabEarnings,null);}
@@ -19774,7 +20028,7 @@ function App(){
     if(tab==='macro'){return h(TabMacro,null);}
     if(tab==='dividends'){return h(TabDividends,null);}
     if(tab==='fundamentals'){return h(TabFundamentals,null);}
-    if(tab==='sizing'){return h(TabSizing,null);}
+    if(tab==='sizing'){return h(TabSizing,{freeCash:freeCash});}
     if(tab==='dashboard'){return h(TabDashboard,null);}
     if(tab==='positions'){return h(TabPositions,null);}
     if(tab==='watchlist'){return h(TabWatchlist,null);}
@@ -19799,7 +20053,7 @@ function App(){
     if(tab==='crypto'){return h(TabCrypto,null);}
     if(tab==='events'){return h(TabEventPlays,null);}
     if(tab==='stockpicks'){return h(TabStockPicks,null);}
-    if(tab==='tradeprompt'){return h(TabTradePrompt,null);}
+    if(tab==='tradeprompt'){return h(TabTradePrompt,{freeCash:freeCash,updFreeCash:updFreeCash});}
     if(tab==='settings'){return h(TabSettings,null);}
     return null;
   }
